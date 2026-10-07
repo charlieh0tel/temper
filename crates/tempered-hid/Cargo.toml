@@ -4,8 +4,8 @@ description = "Read a PCsensor TEMPerGold USB thermometer over Linux hidraw"
 license = "MIT OR Apache-2.0"
 categories = ["hardware-support"]
 keywords = ["temper", "thermometer", "hidraw", "usb"]
-# Publishing to crates.io is undecided.
-publish = false
+readme = "README.md"
+# Published from CI on every release tag; see RELEASING.md.
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,10 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+# hidraw and poll(2) are Linux's.
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 rustix = { version = "1.1.5", features = ["event", "fs"] }

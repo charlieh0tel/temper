@@ -19,7 +19,7 @@ sudo tempered daemon  # IIO device, linked as /run/tempered/temperature
 ## Layout
 
 - `crates/tempered-hid`: library that talks to the stick; no daemon
-  needed.  MIT OR Apache-2.0.
+  needed; published to crates.io.  MIT OR Apache-2.0.
 - `crates/tempered-bin`: the `tempered` program.  GPL-3.0-or-later.
 - `packaging/`: udev rules, systemd unit, tmpfiles.d, sleep hook,
   Debian maintainer scripts.  `make deb` builds the package;
