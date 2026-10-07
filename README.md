@@ -19,7 +19,18 @@ root:
 ```
 sudo tempered read     # temperature in degrees C
 sudo tempered info     # firmware, probes, calibration, manufacture date
+sudo tempered log      # a JSON line per reading, every 10s
 ```
+
+`tempered log` takes `--interval` (at least `1s`), `--count`, and
+`--time rfc3339|unix` for the `time` field:
+
+```
+{"time":"2026-10-06T18:40:12.345Z","temperature_c":34.93,"centi_celsius":3493}
+```
+
+A failed read prints `{"time":...,"error":"..."}` and logging
+continues.
 
 The stick is found automatically; `--device /dev/hidrawN` picks one.
 

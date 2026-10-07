@@ -257,13 +257,15 @@ A workspace of two crates, as smartclockmon does:
   (`missing_docs`).  MIT OR Apache-2.0.  Whether to publish it to
   crates.io is undecided.
 - `crates/tempered-bin`, the one program, `tempered` ("temper
-  daemon"): `tempered read` and `tempered info` for diagnostics, and
-  `tempered daemon`, which runs in the foreground under systemd
+  daemon").  For diagnostics: `tempered read`, `tempered info`, and
+  `tempered log`, JSON Lines at a fixed interval, with `time` as
+  RFC 3339 or Unix seconds by flag and failed reads as error lines.
+  `tempered daemon` runs in the foreground under systemd
   (`Type=notify`, watchdog, restarts; it never forks): uhid, IIO,
-  `/run` links, configuration.  `read` and `info` poll the stick too,
-  so they are used with the daemon stopped.  The unit, system user,
-  `/run/tempered` and `/etc/default/tempered` take its name.  anyhow
-  and clap.  GPL-3.0-or-later.
+  `/run` links, configuration.  `read`, `info` and `log` poll the
+  stick too, so they are used with the daemon stopped.  The unit,
+  system user, `/run/tempered` and `/etc/default/tempered` take its
+  name.  anyhow and clap.  GPL-3.0-or-later.
 Toolchain pinned to match smartclockmon.  CI, release and audit use
 the shared `charlieh0tel/deb-workflows`.  Released as a .deb through
 the apt repo, not crates.io.

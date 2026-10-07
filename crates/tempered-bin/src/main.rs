@@ -1,9 +1,18 @@
+mod log;
+
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Context;
+use anyhow::ensure;
 use clap::Parser;
 use clap::Subcommand;
 use tempered::protocol::Stick;
+
+use crate::log::TimeFormat;
+
+/// Shortest `log` interval; the stick is slow to answer.
+const MIN_LOG_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Read a PCsensor TEMPerGold USB thermometer and present it as a Linux
 /// IIO device.
@@ -24,6 +33,18 @@ enum Action {
     Read,
     /// Print everything the stick reports about itself.
     Info,
+    /// Print a JSON line per reading, every interval, until stopped.
+    Log {
+        /// Time between readings, at least 1s, e.g. `10s`, `1m`, `1.5s`.
+        #[arg(long, default_value = "10s", value_parser = parse_interval)]
+        interval: Duration,
+        /// Stop after this many readings.
+        #[arg(long)]
+        count: Option<u64>,
+        /// How to write each line's `time`.
+        #[arg(long, value_enum, default_value_t = TimeFormat::Rfc3339)]
+        time: TimeFormat,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -57,6 +78,21 @@ fn main() -> anyhow::Result<()> {
             println!("manufacture_date: {}", stick.manufacture_date()?);
             println!("temperature: {} C", stick.temperature()?);
         }
+        Action::Log {
+            interval,
+            count,
+            time,
+        } => log::run(&mut stick, interval, count, time)?,
     }
     Ok(())
+}
+
+/// Parses a duration such as `10s` or `1m` (jiff's friendly format).
+fn parse_interval(text: &str) -> anyhow::Result<Duration> {
+    let interval = Duration::try_from(text.parse::<jiff::SignedDuration>()?)?;
+    ensure!(
+        interval >= MIN_LOG_INTERVAL,
+        "interval must be at least {MIN_LOG_INTERVAL:?}"
+    );
+    Ok(interval)
 }
