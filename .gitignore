@@ -4,3 +4,7 @@
 # Local run artifacts: captured device transcripts.
 # Golden fixtures live in tests/fixtures/ and are tracked.
 /captures
+
+# Session leftovers kept across reboots: vendor downloads, captures,
+# kernel patch build, the oops stack.  Not part of the project.
+/tmp/
