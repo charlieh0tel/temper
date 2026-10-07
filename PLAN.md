@@ -349,6 +349,8 @@ the apt repo; the library also goes to crates.io (above).  Builds are stamped fr
    (`make ci`, `test-hw` under sudo, `deb`, `release`),
    `RELEASING.md`.  `make deb` builds; lintian shows only warnings
    (`systemctl` in maintainer scripts, needed for the template's glob;
-   no manual page).  Untested: installing the package (needs the
-   reboot) and the release workflow (needs the GitHub repo).
+   no manual page).  Released as 1.0.0: the release workflow built
+   both .debs, the apt repo picked up `tempered`, and `tempered-hid`
+   is on crates.io (the first version by hand; Trusted Publishing
+   from the next tag).  **Done.**
 7. Docs: protocol and descriptor rationale in `docs/`.
