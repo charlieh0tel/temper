@@ -267,8 +267,10 @@ The kernel's `hid-sensor-temperature` mishandles two instances and
 can oops when one is removed (static callbacks; see `docs/daemon.md`,
 "Only one HID temperature sensor").  The daemon refuses to create its
 sensor while another exists (exit 3), the label lock keeps a replug
-from overlapping, and the root tests serialize.  An upstream fix is
-drafted separately.
+from overlapping, and the root tests serialize.  Upstream fixes for
+temperature and humidity are in `patches/`, compile-tested against
+7.0; they still need a runtime test and a rebase onto current
+mainline before sending.
 
 ### Polling
 
