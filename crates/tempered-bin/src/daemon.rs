@@ -10,7 +10,6 @@ use std::process;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::PoisonError;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::RecvTimeoutError;
@@ -29,15 +28,18 @@ use tempered_hid::protocol;
 use tempered_hid::protocol::CentiCelsius;
 use tempered_hid::protocol::Stick;
 
+use crate::VERSION;
 use crate::iio;
 use crate::label::Label;
 use crate::label::LabelLock;
 use crate::listen;
 use crate::listen::ListenError;
 use crate::logger::Logger;
+use crate::mutex::lock;
 use crate::notify;
 use crate::notify::Notifier;
 use crate::schedule::Schedule;
+use crate::sensor::DESCRIPTOR;
 use crate::sensor::Sensor;
 use crate::supervisor::Action;
 use crate::supervisor::FailureLog;
@@ -63,6 +65,10 @@ const IIO_POLL: Duration = Duration::from_millis(100);
 
 /// Main-loop tick when systemd's watchdog is off.
 const DEFAULT_TICK: Duration = Duration::from_secs(1);
+
+/// How much more start time to ask for each tick while waiting for
+/// the label's lock: two ticks, so one late tick does not time out.
+const LOCK_WAIT_EXTENSION: Duration = DEFAULT_TICK.saturating_mul(2);
 
 /// How long past the interval the poll thread may go quiet before the
 /// watchdog pings stop.  A failing query can take over 5 s.
@@ -96,10 +102,15 @@ impl From<Exit> for ExitCode {
 /// The daemon's settings, from the command line or environment.
 #[derive(Debug)]
 pub(crate) struct Config {
+    /// The stick's hidraw node; found if `None`.
     pub(crate) device: Option<PathBuf>,
+    /// The name of the link under `run_dir`.
     pub(crate) label: Label,
+    /// Time between readings.
     pub(crate) interval: Duration,
+    /// How long a reading is served after the stick stops answering.
     pub(crate) hold: Duration,
+    /// Where the label's link and lock live.
     pub(crate) run_dir: PathBuf,
 }
 
@@ -114,12 +125,6 @@ enum Message {
     Destroyed(io::Result<()>),
     /// A worker thread cannot go on.
     ThreadDied { thread: &'static str, error: String },
-}
-
-/// Locks `mutex`; a panic aborts the process, so poisoning cannot
-/// leave the data half updated.
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn var(key: &str) -> Option<String> {
@@ -140,21 +145,33 @@ pub(crate) fn run(config: Config) -> Exit {
 
 /// Everything the main thread owns.
 struct Daemon {
+    /// Shared with the uhid thread.
     logger: Arc<Logger>,
+    /// systemd's notification socket.
     notifier: Notifier,
     /// How long the main loop waits between watchdog pings.
     tick: Duration,
+    /// Whether systemd's watchdog is on.
     watchdog: bool,
+    /// The link's name, and the uhid device's name.
     label: Label,
+    /// Ownership of the label, and its link.
     lock: LabelLock,
+    /// `/dev/uhid`, shared with the uhid and destroy threads.
     uhid: Arc<File>,
+    /// What the virtual device serves; `None` while there is none.
     sensor: Arc<Mutex<Option<Sensor>>>,
     /// When the poll thread last finished a query.
     progress: Arc<Mutex<Instant>>,
+    /// Time between readings.
     interval: Duration,
+    /// From the worker threads.
     messages: Receiver<Message>,
+    /// To the destroy thread.
     destroy_requests: Sender<()>,
+    /// The virtual device's lifecycle.
     supervisor: Supervisor,
+    /// When to log stick failures.
     failures: FailureLog,
     /// A link that could not be written yet; retried with each reading.
     pending_link: Option<PathBuf>,
@@ -164,6 +181,7 @@ struct Daemon {
     stopping: Option<Exit>,
 }
 
+/// A startup failure: the exit status it calls for, and why.
 type StartError = (Exit, anyhow::Error);
 
 fn failure(error: impl Into<anyhow::Error>) -> StartError {
@@ -186,7 +204,7 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
     let lock = acquire(&config.run_dir, &config.label, logger, &notifier)?;
     logger.info(format_args!(
         "tempered {}: {firmware} at {}, label {}",
-        crate::VERSION,
+        VERSION,
         stick.transport().path().display(),
         config.label
     ));
@@ -250,7 +268,7 @@ fn acquire(
             logger.warning(format_args!("label {label} is in use; waiting for it"));
             logged = true;
         }
-        let _ = notifier.extend_timeout(DEFAULT_TICK * 2);
+        let _ = notifier.extend_timeout(LOCK_WAIT_EXTENSION);
         thread::sleep(DEFAULT_TICK);
     }
 }
@@ -367,11 +385,9 @@ impl Daemon {
     fn handle(&mut self, message: Message) {
         match message {
             Message::Reading(Ok(temperature)) => self.on_reading(temperature),
-            Message::Reading(Err(protocol::Error::Gone)) => {
-                self.logger.info(format_args!("stick removed"));
-                self.stopping = Some(Exit::Clean);
+            Message::Reading(Err(error)) if !matches!(error, protocol::Error::Gone) => {
+                self.on_failure(error);
             }
-            Message::Reading(Err(error)) => self.on_failure(error),
             other => self.handle_in_wait(other),
         }
     }
@@ -417,7 +433,7 @@ impl Daemon {
                     return;
                 }
                 let created = self.create(temperature);
-                if self.supervisor.created(created) == Some(Action::GiveUp) {
+                if self.supervisor.created(created) {
                     self.logger.error(format_args!(
                         "the IIO device never appeared; are hid_sensor_hub and \
                          hid_sensor_temperature available?"
@@ -426,7 +442,6 @@ impl Daemon {
                 }
             }
             Action::Update(temperature) => self.update(temperature),
-            Action::Destroy | Action::GiveUp => {}
         }
     }
 
@@ -438,7 +453,7 @@ impl Daemon {
                 anyhow::Error::from(error)
             ));
         }
-        if self.supervisor.on_failure(now) == Some(Action::Destroy) {
+        if self.supervisor.on_failure(now) {
             self.logger.warning(format_args!(
                 "held reading expired; removing the IIO device"
             ));
@@ -460,7 +475,7 @@ impl Daemon {
             product: PRODUCT,
             version: 0,
             country: 0,
-            descriptor: crate::sensor::DESCRIPTOR.to_vec(),
+            descriptor: DESCRIPTOR.to_vec(),
         };
         // The sensor exists before CREATE2, so the probe's requests are
         // answered.

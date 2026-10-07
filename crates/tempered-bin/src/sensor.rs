@@ -124,12 +124,18 @@ struct Features {
 /// A reply to one kernel request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Reply {
+    /// The report asked for, or why not.
     GetReport {
+        /// The request's id.
         id: RequestId,
+        /// The report, report ID first.
         result: Result<Vec<u8>, Errno>,
     },
+    /// Whether the report was taken.
     SetReport {
+        /// The request's id.
         id: RequestId,
+        /// The outcome.
         result: Result<(), Errno>,
     },
 }
@@ -402,6 +408,7 @@ mod tests {
 /// `hid_sensor_temperature` modules.
 #[cfg(test)]
 mod kernel_tests {
+    use std::env;
     use std::fs;
     use std::fs::File;
     use std::path::Path;
@@ -420,12 +427,12 @@ mod kernel_tests {
     use super::*;
     use crate::iio;
     use crate::test_support;
+    use crate::uhid;
     use crate::uhid::Bus;
     use crate::uhid::Create2;
     use crate::uhid::read_event;
     use crate::uhid::write_event;
 
-    const UHID: &str = "/dev/uhid";
     const UNIQ: &str = "tempered-sensor-test";
     const TEMPERATURE: CentiCelsius = CentiCelsius::new(3512);
 
@@ -442,6 +449,12 @@ mod kernel_tests {
     /// timeout or a report-interval sleep.
     const FAST_READ: Duration = Duration::from_millis(500);
 
+    /// Opt-in for [`two_sensors_survive_a_destroy`].
+    const TWO_SENSORS: &str = "TEMPERED_TWO_SENSORS";
+
+    /// How long the surviving sensor keeps sending input reports.
+    const FLOOD: Duration = Duration::from_secs(2);
+
     /// Answers the kernel's requests from a [`Sensor`] until `stop`.
     fn serve(uhid: &File, stop: &AtomicBool) {
         let mut sensor = Sensor::new(TEMPERATURE);
@@ -457,14 +470,67 @@ mod kernel_tests {
         }
     }
 
-    fn wait_for_iio() -> PathBuf {
-        let start = Instant::now();
-        loop {
-            if let Some(path) = iio::find(UNIQ) {
-                return path;
+    /// A virtual temperature sensor served from [`TEMPERATURE`].
+    #[derive(Debug)]
+    struct TestSensor {
+        uhid: Arc<File>,
+        stop: Arc<AtomicBool>,
+        server: Option<thread::JoinHandle<()>>,
+        /// Its IIO device.
+        iio: PathBuf,
+    }
+
+    impl TestSensor {
+        fn create(uniq: &str) -> Self {
+            let uhid = Arc::new(uhid::open().unwrap());
+            let create = Create2 {
+                name: "tempered sensor test".to_owned(),
+                phys: uniq.to_owned(),
+                uniq: uniq.to_owned(),
+                bus: Bus::VIRTUAL,
+                vendor: 0,
+                product: 0,
+                version: 0,
+                country: 0,
+                descriptor: DESCRIPTOR.to_vec(),
+            };
+            write_event(&uhid, ToKernel::Create2(&create)).unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let server = {
+                let uhid = Arc::clone(&uhid);
+                let stop = Arc::clone(&stop);
+                thread::spawn(move || serve(&uhid, &stop))
+            };
+            let start = Instant::now();
+            let iio = loop {
+                if let Some(path) = iio::find(uniq) {
+                    break path;
+                }
+                assert!(start.elapsed() < SETUP_TIMEOUT, "no IIO device appeared");
+                thread::sleep(POLL_PERIOD);
+            };
+            Self {
+                uhid,
+                stop,
+                server: Some(server),
+                iio,
             }
-            assert!(start.elapsed() < SETUP_TIMEOUT, "no IIO device appeared");
-            thread::sleep(POLL_PERIOD);
+        }
+
+        /// Destroys the device while still serving: removal may issue
+        /// requests.
+        fn destroy(&mut self) {
+            if let Some(server) = self.server.take() {
+                write_event(&self.uhid, ToKernel::Destroy).unwrap();
+                self.stop.store(true, Ordering::Relaxed);
+                server.join().unwrap();
+            }
+        }
+    }
+
+    impl Drop for TestSensor {
+        fn drop(&mut self) {
+            self.destroy();
         }
     }
 
@@ -481,44 +547,55 @@ mod kernel_tests {
     #[ignore = "needs root for /dev/uhid"]
     fn iio_device_reads_temperature() {
         let _one = test_support::one_temperature_sensor();
-        let uhid = Arc::new(File::options().read(true).write(true).open(UHID).unwrap());
-        let create = Create2 {
-            name: "tempered sensor test".to_owned(),
-            phys: UNIQ.to_owned(),
-            uniq: UNIQ.to_owned(),
-            bus: Bus::VIRTUAL,
-            vendor: 0,
-            product: 0,
-            version: 0,
-            country: 0,
-            descriptor: DESCRIPTOR.to_vec(),
-        };
-        write_event(&uhid, ToKernel::Create2(&create)).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
-        let server = {
-            let uhid = Arc::clone(&uhid);
-            let stop = Arc::clone(&stop);
-            thread::spawn(move || serve(&uhid, &stop))
-        };
-
-        let iio = wait_for_iio();
-        assert_eq!(read_attribute(&iio, "name"), "temperature");
+        let sensor = TestSensor::create(UNIQ);
+        assert_eq!(read_attribute(&sensor.iio, "name"), "temperature");
         assert_eq!(
-            read_attribute(&iio, "in_temp_raw"),
+            read_attribute(&sensor.iio, "in_temp_raw"),
             TEMPERATURE.get().to_string()
         );
-        let scale: f64 = read_attribute(&iio, "in_temp_scale").parse().unwrap();
+        let scale: f64 = read_attribute(&sensor.iio, "in_temp_scale")
+            .parse()
+            .unwrap();
         assert!((scale - 10.0).abs() < f64::EPSILON, "scale {scale}");
-        read_attribute(&iio, "in_temp_hysteresis");
+        read_attribute(&sensor.iio, "in_temp_hysteresis");
 
         thread::sleep(IDLE);
         assert_eq!(
-            read_attribute(&iio, "in_temp_raw"),
+            read_attribute(&sensor.iio, "in_temp_raw"),
             TEMPERATURE.get().to_string()
         );
+    }
 
-        write_event(&uhid, ToKernel::Destroy).unwrap();
-        stop.store(true, Ordering::Relaxed);
-        server.join().unwrap();
+    /// The kernel bug in `iio::temperature_sensor`'s comment: with two
+    /// sensors, destroying the second while the first sends input
+    /// reports.  A stock `hid-sensor-temperature` oopses here, so this
+    /// runs only with `TEMPERED_TWO_SENSORS=1`, against a kernel carrying
+    /// the per-instance callbacks fix (`patches/`).
+    #[test]
+    #[ignore = "needs root, and oopses a kernel without the patches/ fix"]
+    fn two_sensors_survive_a_destroy() {
+        if env::var_os(TWO_SENSORS).is_none() {
+            eprintln!("skipped: set {TWO_SENSORS}=1 on a patched kernel");
+            return;
+        }
+        let _one = test_support::one_temperature_sensor();
+        let first = TestSensor::create("tempered-two-first");
+        let mut second = TestSensor::create("tempered-two-second");
+        let report = Sensor::new(TEMPERATURE).update(TEMPERATURE);
+        let flooding = {
+            let uhid = Arc::clone(&first.uhid);
+            thread::spawn(move || {
+                let start = Instant::now();
+                while start.elapsed() < FLOOD {
+                    write_event(&uhid, ToKernel::Input2(&report)).unwrap();
+                }
+            })
+        };
+        second.destroy();
+        flooding.join().unwrap();
+        assert_eq!(
+            read_attribute(&first.iio, "in_temp_raw"),
+            TEMPERATURE.get().to_string()
+        );
     }
 }

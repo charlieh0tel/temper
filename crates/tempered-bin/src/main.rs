@@ -6,6 +6,7 @@ mod label;
 mod listen;
 mod log;
 mod logger;
+mod mutex;
 mod notify;
 mod schedule;
 mod sensor;
@@ -53,24 +54,11 @@ struct Cli {
     action: Action,
 }
 
+/// The subcommands.
 #[derive(Debug, Subcommand)]
 enum Action {
-    /// Print the temperature in degrees C.
-    Read,
-    /// Print everything the stick reports about itself.
-    Info,
-    /// Print a JSON line per reading, every interval, until stopped.
-    Log {
-        /// Time between readings, at least 1s, e.g. `10s`, `1m`, `1.5s`.
-        #[arg(long, default_value = "10s", value_parser = parse_interval)]
-        interval: Duration,
-        /// Stop after this many readings.
-        #[arg(long)]
-        count: Option<u64>,
-        /// How to write each line's `time`.
-        #[arg(long, value_enum, default_value_t = TimeFormat::Rfc3339)]
-        time: TimeFormat,
-    },
+    #[command(flatten)]
+    Tool(Tool),
     /// Present the stick as an IIO device until stopped.  Runs in the
     /// foreground, for systemd.
     Daemon {
@@ -87,6 +75,27 @@ enum Action {
         /// Where the label's link and lock live.
         #[arg(long, hide = true, default_value = "/run/tempered")]
         run_dir: PathBuf,
+    },
+}
+
+/// The diagnostic subcommands, which read the stick directly.
+#[derive(Debug, Subcommand)]
+enum Tool {
+    /// Print the temperature in degrees C.
+    Read,
+    /// Print everything the stick reports about itself.
+    Info,
+    /// Print a JSON line per reading, every interval, until stopped.
+    Log {
+        /// Time between readings, at least 1s, e.g. `10s`, `1m`, `1.5s`.
+        #[arg(long, default_value = "10s", value_parser = parse_interval)]
+        interval: Duration,
+        /// Stop after this many readings.
+        #[arg(long)]
+        count: Option<u64>,
+        /// How to write each line's `time`.
+        #[arg(long, value_enum, default_value_t = TimeFormat::Rfc3339)]
+        time: TimeFormat,
     },
 }
 
@@ -119,7 +128,7 @@ fn main() -> ExitCode {
             })
             .into()
         }
-        action => match tool(cli.device, action) {
+        Action::Tool(action) => match tool(cli.device, action) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("Error: {error:#}");
@@ -130,7 +139,7 @@ fn main() -> ExitCode {
 }
 
 /// The diagnostic commands.
-fn tool(device: Option<PathBuf>, action: Action) -> anyhow::Result<()> {
+fn tool(device: Option<PathBuf>, action: Tool) -> anyhow::Result<()> {
     let mut stick = match &device {
         Some(device) => {
             Stick::open(device).with_context(|| format!("opening {}", device.display()))?
@@ -138,8 +147,8 @@ fn tool(device: Option<PathBuf>, action: Action) -> anyhow::Result<()> {
         None => Stick::find()?,
     };
     match action {
-        Action::Read => println!("{}", stick.temperature()?),
-        Action::Info => {
+        Tool::Read => println!("{}", stick.temperature()?),
+        Tool::Info => {
             println!("device: {}", stick.transport().path().display());
             println!("firmware: {}", stick.firmware()?);
             let sensor_type = stick.sensor_type()?;
@@ -160,12 +169,11 @@ fn tool(device: Option<PathBuf>, action: Action) -> anyhow::Result<()> {
             println!("manufacture_date: {}", stick.manufacture_date()?);
             println!("temperature: {} C", stick.temperature()?);
         }
-        Action::Log {
+        Tool::Log {
             interval,
             count,
             time,
         } => log::run(&mut stick, interval, count, time)?,
-        Action::Daemon { .. } => unreachable!("handled in main"),
     }
     Ok(())
 }

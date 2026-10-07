@@ -25,7 +25,9 @@ use rustix::event::PollFlags;
 use rustix::event::Timespec;
 use tempfile::TempDir;
 
+use crate::iio::has_uniq;
 use crate::test_support;
+use crate::uhid;
 use crate::uhid::Bus;
 use crate::uhid::Create2;
 use crate::uhid::FromKernel;
@@ -33,11 +35,7 @@ use crate::uhid::ToKernel;
 use crate::uhid::read_event;
 use crate::uhid::write_event;
 
-const UHID: &str = "/dev/uhid";
 const SYSFS_HIDRAW: &str = "/sys/class/hidraw";
-
-/// `BUS_USB` from `include/uapi/linux/input.h`.
-const BUS_USB: Bus = Bus(0x03);
 
 /// The stick's IDs, which discovery and the daemon look for.
 const VENDOR: u32 = 0x3553;
@@ -109,13 +107,9 @@ fn wait_for<T>(timeout: Duration, mut condition: impl FnMut() -> Option<T>) -> O
 
 /// The `/dev/hidrawN` node of the HID device created with `uniq`.
 fn hidraw_with_uniq(uniq: &str) -> Option<PathBuf> {
-    let line = format!("HID_UNIQ={uniq}");
     fs::read_dir(SYSFS_HIDRAW).ok()?.find_map(|entry| {
         let entry = entry.ok()?;
-        let uevent = fs::read_to_string(entry.path().join("device/uevent")).ok()?;
-        uevent
-            .lines()
-            .any(|l| l == line)
+        has_uniq(&entry.path().join("device"), uniq)
             .then(|| Path::new("/dev").join(entry.file_name()))
     })
 }
@@ -137,12 +131,12 @@ fn replies(command: &[u8], state: &FakeState) -> Vec<[u8; 8]> {
 
 impl FakeStick {
     fn new(uniq: &str) -> Self {
-        let uhid = Arc::new(File::options().read(true).write(true).open(UHID).unwrap());
+        let uhid = Arc::new(uhid::open().unwrap());
         let create = Create2 {
             name: "PCsensor TEMPerGold (fake)".to_owned(),
             phys: format!("{uniq}/input1"),
             uniq: uniq.to_owned(),
-            bus: BUS_USB,
+            bus: Bus::USB,
             vendor: VENDOR,
             product: PRODUCT,
             version: 0,

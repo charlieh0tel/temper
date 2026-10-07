@@ -6,11 +6,13 @@ use std::io;
 use std::os::fd::FromRawFd;
 use std::os::fd::OwnedFd;
 use std::os::fd::RawFd;
-use std::path::Path;
 use std::process;
 
 use rustix::fs::FileType;
 use rustix::io::FdFlags;
+
+use crate::uhid;
+use crate::uhid::UHID_PATH;
 
 const LISTEN_PID: &str = "LISTEN_PID";
 const LISTEN_FDS: &str = "LISTEN_FDS";
@@ -22,25 +24,34 @@ const LISTEN_FDS_START: RawFd = 3;
 /// The name the unit gives the fd: `OpenFile=/dev/uhid:uhid`.
 const UHID_FD_NAME: &str = "uhid";
 
-const UHID_PATH: &str = "/dev/uhid";
-
 /// `MISC_MAJOR` (`include/uapi/linux/major.h`) and `UHID_MINOR`
 /// (`include/linux/miscdevice.h`).
 const UHID_MAJOR: u32 = 10;
 const UHID_MINOR: u32 = 239;
 
+/// Why `/dev/uhid` cannot be had.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ListenError {
+    /// `LISTEN_FDS` is not a number; holds its text.
     #[error("{LISTEN_FDS} is not a number: {0:?}")]
     BadCount(String),
+    /// `LISTEN_FDNAMES` and `LISTEN_FDS` disagree.
     #[error("{LISTEN_FDNAMES} names {names} fds but {LISTEN_FDS} is {count}")]
-    CountMismatch { names: usize, count: usize },
+    CountMismatch {
+        /// How many names `LISTEN_FDNAMES` gives.
+        names: usize,
+        /// `LISTEN_FDS`.
+        count: usize,
+    },
+    /// systemd passed fds, but none named `uhid`.
     #[error(
         "systemd passed no fd named {UHID_FD_NAME:?}; the unit needs OpenFile={UHID_PATH}:{UHID_FD_NAME}"
     )]
     NoUhid,
+    /// The fd named `uhid` is some other file.
     #[error("the fd named {UHID_FD_NAME:?} is not {UHID_PATH}")]
     NotUhid,
+    /// Opening or checking `/dev/uhid` failed.
     #[error("{UHID_PATH}")]
     Io(#[from] io::Error),
 }
@@ -88,10 +99,7 @@ fn is_uhid(fd: &OwnedFd) -> io::Result<bool> {
 /// `/dev/uhid`, from systemd if it passed it, else opened (needs root).
 pub(crate) fn uhid(var: impl Fn(&str) -> Option<String>) -> Result<File, ListenError> {
     let Some(raw) = passed_uhid_fd(var, process::id())? else {
-        return Ok(File::options()
-            .read(true)
-            .write(true)
-            .open(Path::new(UHID_PATH))?);
+        return Ok(uhid::open()?);
     };
     // SAFETY: systemd passed this fd to this process (LISTEN_PID
     // matched) and nothing else in the process owns it; it is adopted
@@ -108,19 +116,10 @@ pub(crate) fn uhid(var: impl Fn(&str) -> Option<String>) -> Result<File, ListenE
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
+    use crate::test_support::env;
 
     const PID: u32 = 4242;
-
-    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let map: HashMap<String, String> = pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect();
-        move |key| map.get(key).cloned()
-    }
 
     #[test]
     fn finds_named_fd() {

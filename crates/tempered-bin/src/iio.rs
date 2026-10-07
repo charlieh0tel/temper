@@ -18,7 +18,7 @@ const TEMPERATURE_SENSOR_PREFIX: &str = "HID-SENSOR-200033.";
 const IIO_DEVICE_PREFIX: &str = "iio:device";
 
 /// Whether the device at `dir` has `HID_UNIQ=<uniq>` in its `uevent`.
-fn has_uniq(dir: &Path, uniq: &str) -> bool {
+pub(crate) fn has_uniq(dir: &Path, uniq: &str) -> bool {
     let line = format!("HID_UNIQ={uniq}");
     fs::read_to_string(dir.join("uevent")).is_ok_and(|uevent| uevent.lines().any(|l| l == line))
 }

@@ -23,6 +23,7 @@ const TEMPORARY_SUFFIX: &str = ".tmp";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Label(String);
 
+/// A label that fails validation; holds the rejected text.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[error(
     "label {0:?} must be 1 to {MAX_LEN} of a-z, 0-9, '_' and '-', starting with a letter or digit"

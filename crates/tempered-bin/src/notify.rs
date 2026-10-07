@@ -88,17 +88,8 @@ pub(crate) fn watchdog_tick(var: impl Fn(&str) -> Option<String>) -> Option<Dura
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
-
-    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let map: HashMap<String, String> = pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect();
-        move |key| map.get(key).cloned()
-    }
+    use crate::test_support::env;
 
     #[test]
     fn sends_to_path_socket() {

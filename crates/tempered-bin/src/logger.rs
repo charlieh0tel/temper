@@ -11,7 +11,7 @@ const JOURNAL_STREAM: &str = "JOURNAL_STREAM";
 
 /// A message's priority, as `syslog(3)` numbers them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Priority {
+enum Priority {
     Error,
     Warning,
     Info,
@@ -58,7 +58,7 @@ impl Logger {
     }
 
     /// Writes one line; write errors are ignored.
-    pub(crate) fn log(&self, priority: Priority, message: fmt::Arguments<'_>) {
+    fn log(&self, priority: Priority, message: fmt::Arguments<'_>) {
         let line = self.format(priority, message, Timestamp::now());
         let _ = io::stderr().lock().write_all(line.as_bytes());
     }

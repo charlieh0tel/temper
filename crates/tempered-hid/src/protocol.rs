@@ -8,6 +8,7 @@
 
 use std::fmt;
 use std::io;
+use std::iter;
 use std::ops::RangeInclusive;
 use std::time::Duration;
 
@@ -360,14 +361,14 @@ impl<T: Transport> Stick<T> {
 
     /// Drains stale input, sends `command`, and collects its reply.
     fn query(&mut self, command: Command) -> Result<Vec<Report>, Error> {
-        let stale = std::iter::from_fn(|| self.transport.receive(Duration::ZERO).transpose())
+        let stale = iter::from_fn(|| self.transport.receive(Duration::ZERO).transpose())
             .take(MAX_STALE_REPORTS + 1)
             .collect::<io::Result<Vec<_>>>()?;
         if stale.len() > MAX_STALE_REPORTS {
             return Err(Error::Stale(command));
         }
         self.transport.send(&command.bytes())?;
-        let reply = std::iter::from_fn(|| self.transport.receive(REPLY_TIMEOUT).transpose())
+        let reply = iter::from_fn(|| self.transport.receive(REPLY_TIMEOUT).transpose())
             .take(command.reply_reports())
             .collect::<io::Result<Vec<_>>>()?;
         if reply.len() < command.reply_reports() {

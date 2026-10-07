@@ -14,6 +14,9 @@ use std::io::Write;
 
 use rustix::io::Errno;
 
+/// The uhid character device.
+pub(crate) const UHID_PATH: &str = "/dev/uhid";
+
 /// `UHID_DATA_MAX`: largest report payload.
 const DATA_MAX: usize = 4096;
 
@@ -36,7 +39,7 @@ const CREATE2_HEADER_SIZE: usize = NAME_SIZE + PHYS_SIZE + UNIQ_SIZE + 2 * 2 + 4
 
 /// `sizeof(struct uhid_event)`: the type plus the largest union member,
 /// `struct uhid_create2_req`.
-pub(crate) const EVENT_SIZE: usize = TYPE_SIZE + CREATE2_HEADER_SIZE + DESCRIPTOR_MAX;
+const EVENT_SIZE: usize = TYPE_SIZE + CREATE2_HEADER_SIZE + DESCRIPTOR_MAX;
 
 /// `enum uhid_event_type` values this module uses.
 mod event_type {
@@ -59,8 +62,16 @@ mod event_type {
 pub(crate) struct Bus(pub(crate) u16);
 
 impl Bus {
+    /// `BUS_USB`.
+    #[cfg(test)]
+    pub(crate) const USB: Self = Self(0x03);
     /// `BUS_VIRTUAL`.
     pub(crate) const VIRTUAL: Self = Self(0x06);
+}
+
+/// Opens `/dev/uhid` for reading and writing (needs root).
+pub(crate) fn open() -> io::Result<File> {
+    File::options().read(true).write(true).open(UHID_PATH)
 }
 
 /// Identifies a `GET_REPORT` or `SET_REPORT` request; its reply must carry
@@ -175,30 +186,48 @@ pub(crate) enum FromKernel {
     Unknown(u32),
 }
 
+/// Why an event cannot be encoded.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum EncodeError {
+    /// A `Create2` string does not fit its field with the NUL.
     #[error("{field} is {len} bytes; at most {max} fit")]
     StringTooLong {
+        /// The field: `name`, `phys` or `uniq`.
         field: &'static str,
+        /// The string's length.
         len: usize,
+        /// The longest that fits.
         max: usize,
     },
+    /// A `Create2` string contains a NUL, which would truncate it.
     #[error("{0} contains a NUL byte")]
     StringHasNul(&'static str),
+    /// The report descriptor is empty or too long; holds its length.
     #[error("report descriptor is {0} bytes; 1 to {DESCRIPTOR_MAX} fit")]
     DescriptorSize(usize),
+    /// A report is too long; holds its length.
     #[error("report is {0} bytes; at most {DATA_MAX} fit")]
     DataTooLong(usize),
+    /// An error reply's errno does not fit the 16-bit `err` field.
     #[error("error reply carries errno {0}, which does not fit the reply")]
     ErrnoRange(i32),
 }
 
+/// Why bytes read from `/dev/uhid` are not a valid event.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum DecodeError {
+    /// The event ends before its fields do.
     #[error("event of {len} bytes is too short for type {event_type}")]
-    TooShort { event_type: u32, len: usize },
+    TooShort {
+        /// The event's type.
+        event_type: u32,
+        /// How many bytes were read.
+        len: usize,
+    },
+    /// Fewer bytes than the type field; holds how many.
     #[error("event of {0} bytes has no type")]
     NoType(usize),
+    /// A `size` field beyond `UHID_DATA_MAX`; holds its value.
     #[error("report size {0} exceeds {DATA_MAX}")]
     DataTooLong(usize),
 }
@@ -734,8 +763,6 @@ mod kernel_tests {
 
     use super::*;
 
-    const UHID: &str = "/dev/uhid";
-
     /// How long the kernel may take to bind a driver.
     const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -765,7 +792,7 @@ mod kernel_tests {
     #[test]
     #[ignore = "needs root for /dev/uhid"]
     fn create_start_destroy_stop() {
-        let uhid = File::options().read(true).write(true).open(UHID).unwrap();
+        let uhid = open().unwrap();
         let create = Create2 {
             name: "tempered uhid test".to_owned(),
             phys: "tempered-test".to_owned(),

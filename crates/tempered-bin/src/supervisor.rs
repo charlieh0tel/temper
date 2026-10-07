@@ -19,7 +19,7 @@ enum State {
     Present,
 }
 
-/// What the daemon must do next.
+/// What to do with a good reading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
     /// Create the virtual device serving this reading, then report the
@@ -27,15 +27,12 @@ pub(crate) enum Action {
     Create(CentiCelsius),
     /// Serve this reading from the existing device.
     Update(CentiCelsius),
-    /// Remove the link and destroy the device.
-    Destroy,
-    /// Give up: the IIO device never appeared.
-    GiveUp,
 }
 
 /// The lifecycle of the virtual device.
 #[derive(Debug)]
 pub(crate) struct Supervisor {
+    /// Whether the virtual device exists.
     state: State,
     /// How long a reading is served after the stick stops answering.
     hold: Duration,
@@ -67,33 +64,37 @@ impl Supervisor {
         }
     }
 
-    /// The outcome of an [`Action::Create`].
-    pub(crate) fn created(&mut self, ok: bool) -> Option<Action> {
+    /// Records the outcome of an [`Action::Create`]; whether to give up,
+    /// the IIO device having failed to appear too many times in a row.
+    #[must_use]
+    pub(crate) fn created(&mut self, ok: bool) -> bool {
         if ok {
             self.state = State::Present;
             self.create_failures = 0;
-            return None;
+            return false;
         }
         self.create_failures += 1;
-        (self.create_failures >= MAX_CREATE_FAILURES).then_some(Action::GiveUp)
+        self.create_failures >= MAX_CREATE_FAILURES
     }
 
-    /// The stick did not answer.
-    pub(crate) fn on_failure(&mut self, now: Instant) -> Option<Action> {
+    /// The stick did not answer; whether the held reading has expired, so
+    /// the device must be destroyed now.
+    #[must_use]
+    pub(crate) fn on_failure(&mut self, now: Instant) -> bool {
         let expired = self
             .last_good
             .is_none_or(|last| now.saturating_duration_since(last) > self.hold);
-        (self.state == State::Present && expired).then(|| self.destroyed())
+        let destroy = self.state == State::Present && expired;
+        if destroy {
+            self.state = State::Absent;
+        }
+        destroy
     }
 
-    /// The kernel stopped the device behind the daemon's back.
-    pub(crate) fn on_device_dead(&mut self) -> Action {
-        self.destroyed()
-    }
-
-    fn destroyed(&mut self) -> Action {
+    /// The kernel stopped the device behind the daemon's back; it must be
+    /// destroyed.
+    pub(crate) fn on_device_dead(&mut self) {
         self.state = State::Absent;
-        Action::Destroy
     }
 }
 
@@ -133,7 +134,7 @@ mod tests {
     fn present(start: Instant) -> Supervisor {
         let mut supervisor = Supervisor::new(HOLD);
         assert_eq!(supervisor.on_reading(T, start), Action::Create(T));
-        assert_eq!(supervisor.created(true), None);
+        assert!(!supervisor.created(true));
         assert!(supervisor.is_present());
         supervisor
     }
@@ -149,7 +150,7 @@ mod tests {
     fn failures_within_hold_keep_device() {
         let start = Instant::now();
         let mut supervisor = present(start);
-        assert_eq!(supervisor.on_failure(start + HOLD), None);
+        assert!(!supervisor.on_failure(start + HOLD));
         assert!(supervisor.is_present());
     }
 
@@ -158,16 +159,16 @@ mod tests {
         let start = Instant::now();
         let mut supervisor = present(start);
         let later = start + HOLD + Duration::from_secs(1);
-        assert_eq!(supervisor.on_failure(later), Some(Action::Destroy));
+        assert!(supervisor.on_failure(later));
         assert!(!supervisor.is_present());
-        assert_eq!(supervisor.on_failure(later), None);
+        assert!(!supervisor.on_failure(later));
         assert_eq!(supervisor.on_reading(T, later), Action::Create(T));
     }
 
     #[test]
     fn failures_while_absent_do_nothing() {
         let mut supervisor = Supervisor::new(HOLD);
-        assert_eq!(supervisor.on_failure(Instant::now()), None);
+        assert!(!supervisor.on_failure(Instant::now()));
     }
 
     #[test]
@@ -176,10 +177,10 @@ mod tests {
         let mut supervisor = Supervisor::new(HOLD);
         for _ in 0..MAX_CREATE_FAILURES - 1 {
             assert_eq!(supervisor.on_reading(T, start), Action::Create(T));
-            assert_eq!(supervisor.created(false), None);
+            assert!(!supervisor.created(false));
         }
         assert_eq!(supervisor.on_reading(T, start), Action::Create(T));
-        assert_eq!(supervisor.created(false), Some(Action::GiveUp));
+        assert!(supervisor.created(false));
     }
 
     #[test]
@@ -188,21 +189,21 @@ mod tests {
         let mut supervisor = Supervisor::new(HOLD);
         for _ in 0..MAX_CREATE_FAILURES - 1 {
             supervisor.on_reading(T, start);
-            supervisor.created(false);
+            assert!(!supervisor.created(false));
         }
         supervisor.on_reading(T, start);
-        supervisor.created(true);
+        assert!(!supervisor.created(true));
         supervisor.on_device_dead();
         for _ in 0..MAX_CREATE_FAILURES - 1 {
             supervisor.on_reading(T, start);
-            assert_eq!(supervisor.created(false), None);
+            assert!(!supervisor.created(false));
         }
     }
 
     #[test]
     fn dead_device_is_destroyed() {
         let mut supervisor = present(Instant::now());
-        assert_eq!(supervisor.on_device_dead(), Action::Destroy);
+        supervisor.on_device_dead();
         assert!(!supervisor.is_present());
     }
 

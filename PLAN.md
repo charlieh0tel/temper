@@ -267,10 +267,14 @@ The kernel's `hid-sensor-temperature` mishandles two instances and
 can oops when one is removed (static callbacks; see `docs/daemon.md`,
 "Only one HID temperature sensor").  The daemon refuses to create its
 sensor while another exists (exit 3), the label lock keeps a replug
-from overlapping, and the root tests serialize.  Upstream fixes for
-temperature and humidity are in `patches/`, compile-tested against
-7.0; they still need a runtime test and a rebase onto current
-mainline before sending.
+from overlapping, and the root tests serialize (and refuse to run
+while any HID temperature sensor exists, such as a running
+`tempered@`: running them beside the service oopsed the kernel and
+killed the daemon, 2026-10-07).  Upstream fixes for temperature and
+humidity are in `patches/`, rebased onto 7.3-rc6 and compile-tested;
+they still need a runtime test before sending.  7.3 already fixes
+the driver's remove order (967d066f5334, `iio_device_register()`
+before teardown).
 
 ### Polling
 
@@ -309,6 +313,32 @@ Toolchain pinned to match smartclockmon.  CI, release and audit use
 the shared `charlieh0tel/deb-workflows`.  Released as a .deb through
 the apt repo; the library also goes to crates.io (above).  Builds are stamped from `git describe`
 (`RELEASING.md`), with no version bump after a release.
+
+## 2.0.0
+
+An adversarial review of 1.0.0 (Linux, USB/IIO, Rust and packaging
+reviewers, 2026-10-07) found no bug in the normal one-stick path, but
+security, robustness, API and packaging issues.  The fixes break the
+library's API, so the next release is 2.0.0, and 1.0.0 is yanked
+from crates.io once it ships.  Decisions:
+
+- Supported: systemd 253+ (for `OpenFile=`), kernel 4.14+, with the
+  HID sensor modules; Ubuntu 24.04+ and Debian trixie, not bookworm.
+  `Depends: systemd (>= 253)`.
+- Unprivileged IIO readers can stall a destroy (5 s each): accepted
+  and documented, not group-restricted, so readers need no setup.
+- TEMPer2_V4.1, which shares 3553:a001, is refused cleanly (exit 3).
+- The descriptor's temperature field becomes 32 bits (buffered-mode
+  values for negative temperatures), and its top collection
+  Application.
+- 1 s settle after opening the stick, 20 ms before each write
+  (ElfThing waits 2 s and 20 ms).
+- Purge locks the `tempered` account instead of deleting it.
+- `deb-workflows` stays at `@v1`, as in the sibling repos.
+
+Commits, in order: refactor (no behavior change); library API;
+daemon robustness; descriptor; packaging and release; kernel patches;
+docs; then the release.
 
 ## Phases
 
