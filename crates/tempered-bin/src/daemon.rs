@@ -24,6 +24,8 @@ use signal_hook::consts::SIGINT;
 use signal_hook::consts::SIGTERM;
 use signal_hook::iterator::Signals;
 use tempered_hid::hidraw::Hidraw;
+use tempered_hid::hidraw::PRODUCT_ID;
+use tempered_hid::hidraw::VENDOR_ID;
 use tempered_hid::protocol;
 use tempered_hid::protocol::CentiCelsius;
 use tempered_hid::protocol::Stick;
@@ -49,10 +51,6 @@ use crate::uhid::Bus;
 use crate::uhid::Create2;
 use crate::uhid::FromKernel;
 use crate::uhid::ToKernel;
-
-/// The virtual device's IDs: the stick's own, on `BUS_VIRTUAL`.
-const VENDOR: u32 = 0x3553;
-const PRODUCT: u32 = 0xa001;
 
 /// `HID_PHYS` of the virtual device.
 const PHYS: &str = "tempered";
@@ -471,8 +469,9 @@ impl Daemon {
             phys: PHYS.to_owned(),
             uniq: uniq.clone(),
             bus: Bus::VIRTUAL,
-            vendor: VENDOR,
-            product: PRODUCT,
+            // The stick's own IDs, on `BUS_VIRTUAL`.
+            vendor: VENDOR_ID.into(),
+            product: PRODUCT_ID.into(),
             version: 0,
             country: 0,
             descriptor: DESCRIPTOR.to_vec(),

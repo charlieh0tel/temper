@@ -336,6 +336,16 @@ from crates.io once it ships.  Decisions:
 - Purge locks the `tempered` account instead of deleting it.
 - `deb-workflows` stays at `@v1`, as in the sibling repos.
 
+Library API (breaking): `hidraw::Error` (`Scan`, `Open` with the
+path, `NotFound`, `Several`) replaces `FindError` and the bare
+`io::Error` from `Stick::open`; every error variant that carries data
+is `#[non_exhaustive]`.  Added: `VENDOR_ID`/`PRODUCT_ID`, `AsFd` for
+`Hidraw`, constructors for every newtype, `CentiCelsius::celsius`,
+`Stick::into_inner`/`transport_mut`, `Display` for `Command`, `Hash` on
+the result structs; `discover` skips entries that vanish mid-scan;
+`receive` waits without limit on an unrepresentable timeout instead of
+panicking; the settle and pause timing above.
+
 Commits, in order: refactor (no behavior change); library API;
 daemon robustness; descriptor; packaging and release; kernel patches;
 docs; then the release.

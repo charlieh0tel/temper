@@ -25,6 +25,11 @@ report ID, which usbhid strips, then the command.  Replies are read as
 8-byte reports, waiting up to 500 ms each (ElfThing's read timeout).
 Stale input is drained before every command.
 
+The first command waits until 1 s after the node is opened, and every
+command is preceded by a 20 ms pause.  ElfThing waits 2 s after
+opening and 20 ms before each write; the shorter settle has worked on
+the bench stick.
+
 When the stick is unplugged, hidraw's `poll` reports `POLLHUP` and
 `POLLERR` and `read` fails with `EIO`; `ENODEV` comes only from
 writes (`drivers/hid/hidraw.c`).  The hidraw transport reports the

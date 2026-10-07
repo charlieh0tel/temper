@@ -40,6 +40,9 @@ const MANUFACTURE_YEAR_BASE: u16 = 2000;
 /// Millidegrees per centidegree, for IIO's millidegree unit.
 const MILLI_PER_CENTI: i32 = 10;
 
+/// Centidegrees per degree.
+const CENTI_PER_DEGREE: f64 = 100.0;
+
 /// A query the stick answers.  Every reply except `Firmware`'s echoes
 /// the command's second byte as its first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,22 +92,37 @@ impl Command {
     }
 }
 
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Firmware => "firmware",
+            Self::Temperature => "temperature",
+            Self::SensorType => "sensor type",
+            Self::Calibration => "calibration",
+            Self::ManufactureDate => "manufacture date",
+        })
+    }
+}
+
 /// Why a query failed.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
     /// Reading from or writing to the stick failed.
     #[error("stick I/O")]
+    #[non_exhaustive]
     Io(#[source] io::Error),
     /// The stick was removed.  A [`Transport`] reports this as an
     /// `ENODEV` I/O error.
     #[error("stick removed")]
     Gone,
-    /// The stick kept sending unrequested reports.
-    #[error("too many stale reports before {0:?}")]
+    /// The stick kept sending unrequested reports before this query.
+    #[error("too many stale reports before the {0} query")]
+    #[non_exhaustive]
     Stale(Command),
     /// The stick sent fewer reports than the reply needs.
-    #[error("reply to {command:?}: expected {expected} reports, got {actual}")]
+    #[error("reply to the {command} query: expected {expected} reports, got {actual}")]
+    #[non_exhaustive]
     ShortReply {
         /// The query.
         command: Command,
@@ -114,7 +132,8 @@ pub enum Error {
         actual: usize,
     },
     /// The reply is not for the query sent.
-    #[error("reply to {command:?}: tag 0x{actual:02x}, expected 0x{expected:02x}")]
+    #[error("reply to the {command} query: tag 0x{actual:02x}, expected 0x{expected:02x}")]
+    #[non_exhaustive]
     WrongTag {
         /// The query.
         command: Command,
@@ -123,14 +142,17 @@ pub enum Error {
         /// The tag received.
         actual: u8,
     },
-    /// The firmware reply is not text.
+    /// The firmware reply is not text; holds its bytes.
     #[error("firmware string is not printable ASCII: {0:02x?}")]
+    #[non_exhaustive]
     FirmwareNotAscii(Vec<u8>),
     /// The stick is not a model this crate decodes.
     #[error("unsupported firmware {0}")]
+    #[non_exhaustive]
     UnsupportedFirmware(Firmware),
     /// The temperature is outside what the sensor can measure.
     #[error("temperature {0} C outside the sensor range")]
+    #[non_exhaustive]
     OutOfRange(CentiCelsius),
 }
 
@@ -148,10 +170,17 @@ impl From<io::Error> for Error {
 /// is the usual one; implement this to reach the stick some other way.
 pub trait Transport {
     /// Sends one report.
+    ///
+    /// # Errors
+    ///
+    /// Any I/O error; `ENODEV` if the device was removed.
     fn send(&mut self, report: &Report) -> io::Result<()>;
 
     /// The next report, or `None` if none arrives within `timeout`.
-    /// A removed device is reported as an `ENODEV` error.
+    ///
+    /// # Errors
+    ///
+    /// Any I/O error; `ENODEV` if the device was removed.
     fn receive(&mut self, timeout: Duration) -> io::Result<Option<Report>>;
 }
 
@@ -175,18 +204,27 @@ pub struct CentiCelsius(i16);
 
 impl CentiCelsius {
     /// Wraps a value in hundredths of a degree Celsius.
+    #[must_use]
     pub const fn new(centi: i16) -> Self {
         Self(centi)
     }
 
     /// The value in hundredths of a degree Celsius.
+    #[must_use]
     pub const fn get(self) -> i16 {
         self.0
     }
 
     /// The value in thousandths of a degree Celsius, IIO's unit.
-    pub fn millicelsius(self) -> i32 {
-        i32::from(self.0) * MILLI_PER_CENTI
+    #[must_use]
+    pub const fn millicelsius(self) -> i32 {
+        self.0 as i32 * MILLI_PER_CENTI
+    }
+
+    /// The value in degrees Celsius.
+    #[must_use]
+    pub fn celsius(self) -> f64 {
+        f64::from(self.0) / CENTI_PER_DEGREE
     }
 }
 
@@ -202,7 +240,14 @@ impl fmt::Display for CentiCelsius {
 pub struct DeciCelsius(i8);
 
 impl DeciCelsius {
+    /// Wraps a value in tenths of a degree Celsius.
+    #[must_use]
+    pub const fn new(deci: i8) -> Self {
+        Self(deci)
+    }
+
     /// The value in tenths of a degree Celsius.
+    #[must_use]
     pub const fn get(self) -> i8 {
         self.0
     }
@@ -220,7 +265,14 @@ impl fmt::Display for DeciCelsius {
 pub struct DeciPercent(i8);
 
 impl DeciPercent {
+    /// Wraps a value in tenths of a percent.
+    #[must_use]
+    pub const fn new(deci: i8) -> Self {
+        Self(deci)
+    }
+
     /// The value in tenths of a percent.
+    #[must_use]
     pub const fn get(self) -> i8 {
         self.0
     }
@@ -238,6 +290,7 @@ pub struct Firmware(String);
 
 impl Firmware {
     /// The string as the stick reports it, trimmed.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -256,19 +309,27 @@ impl fmt::Display for Firmware {
 pub struct Probe(u8);
 
 impl Probe {
+    /// Wraps the code the stick reports.
+    #[must_use]
+    pub const fn new(code: u8) -> Self {
+        Self(code)
+    }
+
     /// Whether a probe is fitted.
+    #[must_use]
     pub const fn is_present(self) -> bool {
         self.0 != 0
     }
 
     /// The raw code the stick reports.
+    #[must_use]
     pub const fn code(self) -> u8 {
         self.0
     }
 }
 
 /// Which probes are fitted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct SensorType {
     /// The probe inside the stick.
@@ -280,7 +341,7 @@ pub struct SensorType {
 /// Calibration offsets stored on the stick (ElfThing `readCalib`, type
 /// 6).  The firmware applies them; the TEMPerGold has no humidity or
 /// outer probe, so only `inner_temperature` matters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Calibration {
     /// Offset of the inner temperature probe.
@@ -298,7 +359,7 @@ pub struct Calibration {
 /// this query only to TEMPerHUM and to TEMPerX/TEMPer1F/TEMPer2 at
 /// firmware 3.6 or later, and the decoded date has not been checked
 /// against any marking.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct ManufactureDate {
     /// Year, e.g. 2019.
@@ -323,36 +384,71 @@ pub struct Stick<T> {
 
 impl<T: Transport> Stick<T> {
     /// A stick reached through `transport`.
+    #[must_use]
     pub fn new(transport: T) -> Self {
         Self { transport }
     }
 
     /// The transport the stick is reached through.
+    #[must_use]
     pub fn transport(&self) -> &T {
         &self.transport
     }
 
-    /// Queries the firmware string; fails unless it is a TEMPerGold.
+    /// The transport, mutably.
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
+
+    /// The transport, giving up the stick.
+    #[must_use]
+    pub fn into_inner(self) -> T {
+        self.transport
+    }
+
+    /// Queries the firmware string.
+    ///
+    /// # Errors
+    ///
+    /// The query errors (see [`Error`]), and
+    /// [`Error::UnsupportedFirmware`] unless it is a TEMPerGold.
     pub fn firmware(&mut self) -> Result<Firmware, Error> {
         decode_firmware(&self.query(Command::Firmware)?)
     }
 
     /// Queries the temperature.
+    ///
+    /// # Errors
+    ///
+    /// The query errors (see [`Error`]), and [`Error::OutOfRange`] for a
+    /// reading the sensor cannot produce.
     pub fn temperature(&mut self) -> Result<CentiCelsius, Error> {
         decode_temperature(&self.query(Command::Temperature)?)
     }
 
     /// Queries which probes are fitted.
+    ///
+    /// # Errors
+    ///
+    /// The query errors; see [`Error`].
     pub fn sensor_type(&mut self) -> Result<SensorType, Error> {
         Ok(decode_sensor_type(&self.query(Command::SensorType)?))
     }
 
     /// Queries the stored calibration offsets.
+    ///
+    /// # Errors
+    ///
+    /// The query errors; see [`Error`].
     pub fn calibration(&mut self) -> Result<Calibration, Error> {
         Ok(decode_calibration(&self.query(Command::Calibration)?))
     }
 
     /// Queries the manufacture date; see [`ManufactureDate`].
+    ///
+    /// # Errors
+    ///
+    /// The query errors; see [`Error`].
     pub fn manufacture_date(&mut self) -> Result<ManufactureDate, Error> {
         Ok(decode_manufacture_date(
             &self.query(Command::ManufactureDate)?,
@@ -403,7 +499,8 @@ fn decode_firmware(reply: &[Report]) -> Result<Firmware, Error> {
     if !bytes.iter().all(|b| b.is_ascii_graphic() || *b == b' ') {
         return Err(Error::FirmwareNotAscii(bytes));
     }
-    let firmware = Firmware(String::from_utf8_lossy(&bytes).trim().to_owned());
+    let text = bytes.iter().copied().map(char::from).collect::<String>();
+    let firmware = Firmware(text.trim().to_owned());
     if !firmware.0.starts_with(SUPPORTED_FIRMWARE_PREFIX) {
         return Err(Error::UnsupportedFirmware(firmware));
     }
@@ -432,7 +529,7 @@ fn decode_sensor_type(reply: &[Report]) -> SensorType {
 /// Bytes 2-5, each a signed tenth.  Byte 1's meaning is unknown.
 fn decode_calibration(reply: &[Report]) -> Calibration {
     let report = reply[0];
-    let signed = |i: usize| i8::from_ne_bytes([report[i]]);
+    let signed = |i: usize| report[i].cast_signed();
     Calibration {
         inner_temperature: DeciCelsius(signed(2)),
         inner_humidity: DeciPercent(signed(3)),

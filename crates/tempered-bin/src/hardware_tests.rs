@@ -23,6 +23,8 @@ use std::time::Instant;
 use rustix::event::PollFd;
 use rustix::event::PollFlags;
 use rustix::event::Timespec;
+use tempered_hid::hidraw::PRODUCT_ID;
+use tempered_hid::hidraw::VENDOR_ID;
 use tempfile::TempDir;
 
 use crate::iio::has_uniq;
@@ -36,10 +38,6 @@ use crate::uhid::read_event;
 use crate::uhid::write_event;
 
 const SYSFS_HIDRAW: &str = "/sys/class/hidraw";
-
-/// The stick's IDs, which discovery and the daemon look for.
-const VENDOR: u32 = 0x3553;
-const PRODUCT: u32 = 0xa001;
 
 /// The stick's data interface: vendor page, one 8-byte input and one
 /// 8-byte output report, no report IDs.  HID 1.11, section 6.2.2.
@@ -137,8 +135,8 @@ impl FakeStick {
             phys: format!("{uniq}/input1"),
             uniq: uniq.to_owned(),
             bus: Bus::USB,
-            vendor: VENDOR,
-            product: PRODUCT,
+            vendor: VENDOR_ID.into(),
+            product: PRODUCT_ID.into(),
             version: 0,
             country: 0,
             descriptor: STICK_DESCRIPTOR.to_vec(),

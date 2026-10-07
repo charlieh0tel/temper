@@ -14,9 +14,6 @@ use tempered_hid::protocol::Transport;
 
 use crate::schedule::Schedule;
 
-/// Centidegrees per degree, for `temperature_c`.
-const CENTI_PER_UNIT: f64 = 100.0;
-
 /// Milliseconds per second, for `--time unix`.
 const MILLIS_PER_SECOND: f64 = 1000.0;
 
@@ -68,7 +65,7 @@ fn line(
     match reading {
         Ok(temperature) => json!({
             "time": time,
-            "temperature_c": f64::from(temperature.get()) / CENTI_PER_UNIT,
+            "temperature_c": temperature.celsius(),
             "centi_celsius": temperature.get(),
         }),
         Err(error) => json!({
