@@ -255,7 +255,11 @@ A workspace of two crates, as smartclockmon does:
   (`CentiCelsius`, `DeciCelsius`, `DeciPercent`, `Firmware`, `Probe`),
   `#[non_exhaustive]` public enums and result structs, documented
   (`missing_docs`).  MIT OR Apache-2.0.  Whether to publish it to
-  crates.io is undecided.
+  crates.io is undecided.  If it is, only from CI, as usbrelay-rs and
+  ut325f-rs do: a release job with crates.io Trusted Publishing (OIDC,
+  `id-token: write`, `rust-lang/crates-io-auth-action` pinned by
+  commit SHA, no stored token) runs `cargo publish -p tempered`,
+  gated on the shared workflow's audit job.
 - `crates/tempered-bin`, the one program, `tempered` ("temper
   daemon").  For diagnostics: `tempered read`, `tempered info`, and
   `tempered log`, JSON Lines at a fixed interval, with `time` as
