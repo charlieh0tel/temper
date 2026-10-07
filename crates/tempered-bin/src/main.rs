@@ -19,7 +19,6 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use anyhow::Context;
 use anyhow::ensure;
 use clap::CommandFactory;
 use clap::Parser;
@@ -140,10 +139,9 @@ fn main() -> ExitCode {
 
 /// The diagnostic commands.
 fn tool(device: Option<PathBuf>, action: Tool) -> anyhow::Result<()> {
+    // The library's errors already name the node.
     let mut stick = match &device {
-        Some(device) => {
-            Stick::open(device).with_context(|| format!("opening {}", device.display()))?
-        }
+        Some(device) => Stick::open(device)?,
         None => Stick::find()?,
     };
     match action {
