@@ -1,0 +1,54 @@
+name: audit
+
+# Whether a dependency has a published advisory, which is the question
+# that matters for something other people install as a package.
+#
+# Separate from ci.yml because it fails for a reason the other checks
+# cannot: not that the code changed, but that the world learned
+# something about code that did not change.  The schedule is what
+# catches that -- an advisory published against a dependency we have
+# been shipping for months -- and it is the half that a check run only
+# on push would miss entirely.
+#
+# On push and pull request it is narrowed to the files that can
+# introduce one.  Running it on every commit would mean a single
+# unfixable advisory in a transitive dependency turning every unrelated
+# push red until it was resolved, which trains people to ignore it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/audit.yml"
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/audit.yml"
+  schedule:
+    # Weekly, off the hour: scheduled jobs on the hour queue behind
+    # everyone else's.
+    - cron: "17 6 * * 1"
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    # Scoped to this job and no wider.  `issues` is what lets a
+    # scheduled run leave something durable behind: a red run nobody is
+    # watching on a Monday morning is not a notification.
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      # The commit charlieh0tel/deb-workflows pins at its v1 tag, which
+      # ci.yml and release.yml follow.  They move when that tag moves;
+      # this pin does not, and has to be moved to match by hand.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Maintained by RustSec themselves, and it carries its own
+      # cargo-audit, so this job needs no Rust toolchain and cannot
+      # drift from the pinned one.
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

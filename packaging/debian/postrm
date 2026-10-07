@@ -1,0 +1,21 @@
+#!/bin/sh
+# Forgets the udev rules on remove; purge also takes the account.
+set -e
+
+case "$1" in
+remove | purge)
+    systemctl daemon-reload || true
+    udevadm control --reload || true
+    ;;
+esac
+
+case "$1" in
+purge)
+    rm -rf /run/tempered
+    if getent passwd tempered >/dev/null; then
+        deluser --system tempered || true
+    fi
+    ;;
+esac
+
+exit 0

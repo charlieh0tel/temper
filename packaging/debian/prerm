@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stops the daemons before their files go away.
+set -e
+
+case "$1" in
+remove)
+    systemctl stop 'tempered@*.service' || true
+    ;;
+esac
+
+exit 0

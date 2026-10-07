@@ -11,7 +11,7 @@ jobs:
     #
     #   fmt-toolchain  empty, not nightly: rust-toolchain.toml pins the
     #                  compiler and the fmt job resolves the same way.
-    #   audit          off here; audit.yml will run it on a schedule.
+    #   audit          off here; audit.yml runs it weekly and on lockfile changes.
     #   check-args     --workspace --all-targets, or clippy never sees
     #                  the daemon crate or the tests.
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-ci.yml@v1

@@ -28,3 +28,34 @@ workspace = true
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[package.metadata.deb]
+name = "tempered"
+maintainer = "Christopher Hoover <ch@murgatroid.com>"
+copyright = "2026, Christopher Hoover"
+extended-description = """\
+Presents a PCsensor TEMPerGold USB thermometer as a Linux IIO device. \
+The tempered daemon reads the stick over hidraw and creates a virtual \
+HID sensor through /dev/uhid, which the kernel's HID sensor drivers \
+turn into an ordinary iio:deviceN, linked as /run/tempered/<label>. \
+udev starts it when the stick is plugged in."""
+section = "utils"
+priority = "optional"
+depends = "$auto, adduser"
+assets = [
+    ["target/release/tempered", "usr/bin/", "755"],
+    ["../../packaging/udev/60-tempered.rules", "usr/lib/udev/rules.d/60-tempered.rules", "644"],
+    ["../../packaging/systemd/tempered@.service", "usr/lib/systemd/system/tempered@.service", "644"],
+    ["../../packaging/systemd/tempered.default", "etc/default/tempered", "644"],
+    ["../../packaging/tmpfiles.d/tempered.conf", "usr/lib/tmpfiles.d/tempered.conf", "644"],
+    ["../../packaging/system-sleep/tempered", "usr/lib/systemd/system-sleep/tempered", "755"],
+    ["../../README.md", "usr/share/doc/tempered/README.md", "644"],
+    ["../../docs/running.md", "usr/share/doc/tempered/running.md", "644"],
+    ["../../docs/daemon.md", "usr/share/doc/tempered/daemon.md", "644"],
+    ["../../docs/protocol.md", "usr/share/doc/tempered/protocol.md", "644"],
+]
+conf-files = ["/etc/default/tempered"]
+maintainer-scripts = "../../packaging/debian/"
+changelog = "../../packaging/debian/changelog"
+# No systemd-units: the unit is a template that udev starts per stick,
+# installed as a plain asset above; the maintainer scripts do the rest.

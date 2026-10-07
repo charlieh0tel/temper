@@ -336,6 +336,11 @@ the apt repo, not crates.io.
    a reboot: install by hand and check `OpenFile=` with
    `DevicePolicy=closed`, the keyboard deauthorize, hotplug start and
    stop, and the suspend hook.
-6. Debian packaging, release and audit workflows, Makefile,
-   `RELEASING.md`.
+6. Debian packaging (`[package.metadata.deb]` in `tempered-bin`,
+   `packaging/debian/`), release and audit workflows, Makefile
+   (`make ci`, `test-hw` under sudo, `deb`, `release`),
+   `RELEASING.md`.  `make deb` builds; lintian shows only warnings
+   (`systemctl` in maintainer scripts, needed for the template's glob;
+   no manual page).  Untested: installing the package (needs the
+   reboot) and the release workflow (needs the GitHub repo).
 7. Docs: protocol and descriptor rationale in `docs/`.
