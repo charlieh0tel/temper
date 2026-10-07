@@ -17,7 +17,7 @@ use anyhow::Context;
 use anyhow::ensure;
 use clap::Parser;
 use clap::Subcommand;
-use tempered::protocol::Stick;
+use tempered_hid::protocol::Stick;
 
 use crate::log::TimeFormat;
 

@@ -10,9 +10,9 @@ use clap::ValueEnum;
 use jiff::Timestamp;
 use serde_json::Value;
 use serde_json::json;
-use tempered::protocol::CentiCelsius;
-use tempered::protocol::Stick;
-use tempered::protocol::Transport;
+use tempered_hid::protocol::CentiCelsius;
+use tempered_hid::protocol::Stick;
+use tempered_hid::protocol::Transport;
 
 /// Centidegrees per degree, for `temperature_c`.
 const CENTI_PER_UNIT: f64 = 100.0;

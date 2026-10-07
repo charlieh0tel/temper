@@ -1,7 +1,7 @@
 # Do not add default-members: a bare `cargo test` covers every member
 # only while it is absent.
 [workspace]
-members = ["crates/tempered", "crates/tempered-bin"]
+members = ["crates/tempered-hid", "crates/tempered-bin"]
 resolver = "3"
 
 [workspace.package]
@@ -9,7 +9,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
-repository = "https://github.com/charlieh0tel/tempered"
+repository = "https://github.com/charlieh0tel/tempered-hid"
 
 # Stripped in the packaged build: lintian objects to unstripped
 # binaries.

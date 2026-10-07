@@ -399,14 +399,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tempered"
-version = "0.1.0"
-dependencies = [
- "rustix",
- "thiserror",
-]
-
-[[package]]
 name = "tempered-bin"
 version = "0.1.0"
 dependencies = [
@@ -415,7 +407,15 @@ dependencies = [
  "jiff",
  "rustix",
  "serde_json",
- "tempered",
+ "tempered-hid",
+ "thiserror",
+]
+
+[[package]]
+name = "tempered-hid"
+version = "0.1.0"
+dependencies = [
+ "rustix",
  "thiserror",
 ]
 

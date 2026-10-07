@@ -12,7 +12,7 @@
 //! "Report descriptor requirements".
 
 use rustix::io::Errno;
-use tempered::protocol::CentiCelsius;
+use tempered_hid::protocol::CentiCelsius;
 
 use crate::uhid::FromKernel;
 use crate::uhid::ReportNumber;

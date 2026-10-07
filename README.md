@@ -36,11 +36,11 @@ The stick is found automatically; `--device /dev/hidrawN` picks one.
 
 ## Crates
 
-- `crates/tempered`: a library that only talks to the stick: protocol,
+- `crates/tempered-hid`: a library that only talks to the stick: protocol,
   discovery and hidraw I/O.  Usable without the daemon:
 
   ```rust
-  let mut stick = tempered::protocol::Stick::find()?;
+  let mut stick = tempered_hid::protocol::Stick::find()?;
   println!("{} C", stick.temperature()?);
   ```
 
@@ -55,6 +55,6 @@ The stick is found automatically; `--device /dev/hidrawN` picks one.
 
 ## License
 
-The `tempered` program is GPL-3.0-or-later; see `LICENSE`.  The `tempered`
-library is MIT OR Apache-2.0; see `crates/tempered/LICENSE-MIT` and
-`crates/tempered/LICENSE-APACHE`.
+The `tempered` program is GPL-3.0-or-later; see `LICENSE`.  The `tempered-hid`
+library is MIT OR Apache-2.0; see `crates/tempered-hid/LICENSE-MIT` and
+`crates/tempered-hid/LICENSE-APACHE`.

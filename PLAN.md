@@ -271,7 +271,7 @@ pushes an input report, so IIO buffered mode and triggers get data.
 
 A workspace of two crates, as smartclockmon does:
 
-- `crates/tempered`, a library that only talks to the stick (protocol,
+- `crates/tempered-hid`, a library that only talks to the stick (protocol,
   discovery, hidraw transport), usable by third parties without the
   daemon.  thiserror, no anyhow.  Newtypes for units and IDs
   (`CentiCelsius`, `DeciCelsius`, `DeciPercent`, `Firmware`, `Probe`),
@@ -280,7 +280,7 @@ A workspace of two crates, as smartclockmon does:
   crates.io is undecided.  If it is, only from CI, as usbrelay-rs and
   ut325f-rs do: a release job with crates.io Trusted Publishing (OIDC,
   `id-token: write`, `rust-lang/crates-io-auth-action` pinned by
-  commit SHA, no stored token) runs `cargo publish -p tempered`,
+  commit SHA, no stored token) runs `cargo publish -p tempered-hid`,
   gated on the shared workflow's audit job.
 - `crates/tempered-bin`, the one program, `tempered` ("temper
   daemon").  For diagnostics: `tempered read`, `tempered info`, and

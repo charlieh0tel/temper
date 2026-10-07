@@ -1,5 +1,5 @@
 [package]
-name = "tempered"
+name = "tempered-hid"
 description = "Read a PCsensor TEMPerGold USB thermometer over Linux hidraw"
 license = "MIT OR Apache-2.0"
 categories = ["hardware-support"]
