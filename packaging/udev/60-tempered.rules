@@ -1,0 +1,18 @@
+# PCsensor TEMPerGold (3553:a001).  See docs/running.md.
+
+# The data interface (USB interface 1): readable by the tempered
+# group, and starts tempered@hidrawN, which BindsTo= the device so an
+# unplug stops it.  Matching the USB parent keeps out the virtual
+# sensor tempered creates, which has the same IDs on BUS_VIRTUAL.
+ACTION!="remove", SUBSYSTEM=="hidraw", ATTRS{bInterfaceNumber}=="01", \
+  ATTRS{idVendor}=="3553", ATTRS{idProduct}=="a001", \
+  GROUP="tempered", MODE="0660", \
+  TAG+="systemd", ENV{SYSTEMD_WANTS}+="tempered@%k.service"
+
+# The boot keyboard (USB interface 0), which can type readings into a
+# console when CapsLock or NumLock toggles: deauthorized, so the host
+# unbinds it and never binds it again.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", \
+  ATTR{bInterfaceNumber}=="00", \
+  ATTRS{idVendor}=="3553", ATTRS{idProduct}=="a001", \
+  ATTR{authorized}="0"

@@ -330,7 +330,12 @@ the apt repo, not crates.io.
    link reads right, and stopping removes both.  Remaining: the
    fake-stick root tests.
 5. udev rules (hotplug start, hidraw group, keyboard deauthorize),
-   systemd unit, tmpfiles.d, system-sleep hook.
+   systemd unit, tmpfiles.d, system-sleep hook, in `packaging/`;
+   `docs/running.md`.  Written and statically checked (`udevadm
+   verify`, `systemd-analyze verify`, `shellcheck`).  Remaining, after
+   a reboot: install by hand and check `OpenFile=` with
+   `DevicePolicy=closed`, the keyboard deauthorize, hotplug start and
+   stop, and the suspend hook.
 6. Debian packaging, release and audit workflows, Makefile,
    `RELEASING.md`.
 7. Docs: protocol and descriptor rationale in `docs/`.

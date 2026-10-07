@@ -1,0 +1,25 @@
+#!/bin/sh
+# Stops tempered before suspend and starts the same instances after:
+# the kernel's sensor suspend hook would otherwise send requests to a
+# frozen daemon, each timing out after 5 s.  A glob cannot do the
+# start: `systemctl start` globs match only loaded units, and udev does
+# not start them again, since the stick stays plugged in.  See
+# docs/daemon.md.
+
+state=/run/tempered-sleep
+
+case "$1" in
+pre)
+    systemctl list-units --state=active --plain --no-legend \
+        'tempered@*.service' | awk '{ print $1 }' >"$state"
+    if [ -s "$state" ]; then
+        xargs systemctl stop <"$state"
+    fi
+    ;;
+post)
+    if [ -s "$state" ]; then
+        xargs systemctl start <"$state"
+    fi
+    rm -f "$state"
+    ;;
+esac

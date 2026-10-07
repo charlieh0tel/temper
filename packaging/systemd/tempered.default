@@ -1,0 +1,11 @@
+# Settings for tempered@.service; see `tempered daemon --help`.
+
+# Name of the link to the IIO device: /run/tempered/<label>.
+#TEMPERED_LABEL=temperature
+
+# Time between readings, at least 1s.
+#TEMPERED_INTERVAL=10s
+
+# How long to serve the last reading once the stick stops answering,
+# at least twice the interval; after that the IIO device is removed.
+#TEMPERED_HOLD=60s

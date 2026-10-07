@@ -1,0 +1,62 @@
+[Unit]
+Description=TEMPerGold thermometer on /dev/%I as an IIO device
+Documentation=https://github.com/charlieh0tel/tempered-hid
+# Started by udev for each stick's data interface (60-tempered.rules),
+# not enabled.  BindsTo= stops it when the stick is unplugged.  The
+# IIO device is linked as /run/tempered/<label>; settings are in
+# /etc/default/tempered.  See docs/running.md and docs/daemon.md.
+BindsTo=dev-%i.device
+After=dev-%i.device
+
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=notify
+NotifyAccess=main
+EnvironmentFile=-/etc/default/tempered
+ExecStart=/usr/bin/tempered --device /dev/%I daemon
+# Opened as root and passed as the fd named "uhid"; /dev/uhid stays
+# root-only, since it can create keyboards.
+OpenFile=/dev/uhid:uhid
+WatchdogSec=60s
+# 2 is a configuration error and 3 a device that cannot be presented
+# (another HID temperature sensor, or no IIO device); retrying fixes
+# neither.  1 is a runtime failure and is retried.
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=2 3
+
+User=tempered
+Group=tempered
+
+# /run/tempered comes from tmpfiles.d (tempered.conf), so it outlives
+# any one instance.
+ReadWritePaths=/run/tempered
+
+# Not PrivateDevices=: its /dev has no hidraw nodes.  /dev/uhid is
+# allowed too, in case the device policy applies to OpenFile=.
+DevicePolicy=closed
+DeviceAllow=char-hidraw rw
+DeviceAllow=/dev/uhid rw
+
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
