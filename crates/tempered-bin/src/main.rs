@@ -30,6 +30,9 @@ use crate::daemon::Config;
 use crate::label::Label;
 use crate::log::TimeFormat;
 
+/// The build's version, stamped by `build.rs`.
+const VERSION: &str = env!("TEMPERED_VERSION");
+
 /// Shortest polling interval; the stick is slow to answer.
 const MIN_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -40,7 +43,7 @@ const MIN_HOLD_INTERVALS: u32 = 2;
 /// Read a PCsensor TEMPerGold USB thermometer and present it as a Linux
 /// IIO device.
 #[derive(Debug, Parser)]
-#[command(name = "tempered", version)]
+#[command(name = "tempered", version = VERSION)]
 struct Cli {
     /// hidraw node of the stick's data interface; found if omitted.
     #[arg(long, global = true)]

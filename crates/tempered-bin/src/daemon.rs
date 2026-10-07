@@ -185,7 +185,8 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
     })?);
     let lock = acquire(&config.run_dir, &config.label, logger, &notifier)?;
     logger.info(format_args!(
-        "{firmware} at {}, label {}",
+        "tempered {}: {firmware} at {}, label {}",
+        crate::VERSION,
         stick.transport().path().display(),
         config.label
     ));

@@ -40,9 +40,17 @@ clean:
 	$(CARGO) clean
 
 # Requires cargo-deb: cargo install cargo-deb
+# The package version is the binary's own (build.rs): a clean build on
+# its release tag takes the changelog's version, as CI does; anything
+# else is a snapshot that sorts after the release before it and before
+# the next, so two builds of different code never share a version.
 deb:
 	$(CARGO) build --release --workspace
-	$(CARGO) deb -p tempered-bin --no-build -q
+	@v=$$(./target/release/tempered --version | awk '{print $$2}'); \
+	case "$$v" in \
+	  *git*) $(CARGO) deb -p tempered-bin --no-build -q --deb-version "$$v-1" ;; \
+	  *)     $(CARGO) deb -p tempered-bin --no-build -q ;; \
+	esac
 
 # Cut a release: one version, in Cargo.toml and the changelog, tagged.
 # Refuses a dirty tree, since the tag would name a commit that does not

@@ -305,7 +305,8 @@ A workspace of two crates, as smartclockmon does:
   name.  anyhow and clap.  GPL-3.0-or-later.
 Toolchain pinned to match smartclockmon.  CI, release and audit use
 the shared `charlieh0tel/deb-workflows`.  Released as a .deb through
-the apt repo, not crates.io.
+the apt repo, not crates.io.  Builds are stamped from `git describe`
+(`RELEASING.md`), with no version bump after a release.
 
 ## Phases
 
