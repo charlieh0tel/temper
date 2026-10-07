@@ -1,9 +1,9 @@
 #!/bin/sh
-# Creates the service account, /run/tempered, and applies the udev
-# rules to sticks already plugged in.  The order matters: udev resolves
-# GROUP= names when it reads rules, so the group comes first, and the
-# unit's ReadWritePaths= needs /run/tempered before it starts.  See
-# docs/running.md.
+# Creates the service account and /run/tempered, applies the udev rules
+# to sticks already plugged in, and starts their daemons.  The order
+# matters: udev resolves GROUP= names when it reads rules, so the group
+# comes first, and the unit's ReadWritePaths= needs /run/tempered before
+# it starts.  See docs/running.md.
 set -e
 
 case "$1" in
@@ -14,21 +14,31 @@ configure)
             --gecos "TEMPerGold IIO daemon" \
             tempered
     fi
-    systemd-tmpfiles --create /usr/lib/tmpfiles.d/tempered.conf || true
-    systemctl daemon-reload || true
+    # The basename, so an override in /etc/tmpfiles.d wins.
+    systemd-tmpfiles --create tempered.conf || true
     udevadm control --reload || true
     # Re-add each stick and its interfaces: that deauthorizes the
-    # keyboard, gives the data interface its group, and starts the
-    # daemon, since udev's SYSTEMD_WANTS acts when a device first
-    # becomes active.
+    # keyboard and gives the data interface its group.
     for stick in /sys/bus/usb/devices/*; do
         if [ "$(cat "$stick/idVendor" 2>/dev/null)" = 3553 ] &&
             [ "$(cat "$stick/idProduct" 2>/dev/null)" = a001 ]; then
-            udevadm trigger --action=add --parent-match="$stick" || true
+            udevadm trigger --action=add --settle --parent-match="$stick" || true
         fi
     done
-    # An upgrade: running instances pick up the new binary.
-    systemctl try-restart 'tempered@*.service' || true
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        # An upgrade: running instances pick up the new binary.
+        systemctl --no-block try-restart 'tempered@*.service' || true
+        # udev starts the daemon only when a device first becomes
+        # active, which a stick plugged in before a reinstall is not.
+        for node in /sys/class/hidraw/hidraw*; do
+            uevent="$node/device/uevent"
+            if grep -qx 'HID_ID=0003:00003553:0000A001' "$uevent" 2>/dev/null &&
+                grep -q '^HID_PHYS=.*/input1$' "$uevent"; then
+                systemctl --no-block start "tempered@${node##*/}.service" || true
+            fi
+        done
+    fi
     ;;
 esac
 

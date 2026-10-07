@@ -43,7 +43,8 @@ turn into an ordinary iio:deviceN, linked as /run/tempered/<label>. \
 udev starts it when the stick is plugged in."""
 section = "utils"
 priority = "optional"
-depends = "$auto, adduser"
+# systemd 253 for OpenFile= in the unit.
+depends = "$auto, adduser, systemd (>= 253)"
 assets = [
     ["target/release/tempered", "usr/bin/", "755"],
     ["../../packaging/udev/60-tempered.rules", "usr/lib/udev/rules.d/60-tempered.rules", "644"],

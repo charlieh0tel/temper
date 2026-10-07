@@ -360,6 +360,16 @@ shutdown's status; SIGHUP is handled; hold ages use `CLOCK_BOOTTIME`;
 Descriptor: Application collection; Report Interval's maximum encoded
 as a positive value; 32-bit temperature field.
 
+Packaging and release: `Depends: systemd (>= 253)`; `postinst` starts
+the daemon for sticks already plugged in (udev does not on a
+reinstall) and uses `--no-block`; the suspend hook starts without
+blocking and only for sticks still present; purge locks the account;
+the unit adds `UMask=0077`, `ProtectProc=invisible`, `ProcSubset=pid`,
+`RemoveIPC=yes`; `make deb` reruns `build.rs` so the version stamp
+sees uncommitted edits; the release workflow checks that the tag,
+`Cargo.toml` and the changelog agree before building, and defaults to
+no token permissions.
+
 Commits, in order: refactor (no behavior change); library API;
 daemon robustness; descriptor; packaging and release; kernel patches;
 docs; then the release.

@@ -1,7 +1,13 @@
 # Running tempered
 
 How the pieces in `packaging/` fit together.  The Debian package
-(phase 6) installs them; until then, by hand as below.
+installs them; the steps below do the same by hand.
+
+Requires systemd 253 or later (for `OpenFile=`; the package depends on
+it), a kernel of 4.14 or later with `uhid`, `hid-sensor-hub` and
+`hid-sensor-temperature`, and no other HID temperature sensor on the
+machine (`docs/daemon.md`).  Debian trixie and Ubuntu 24.04 qualify;
+bookworm and Ubuntu 22.04 do not.
 
 ## Files
 
@@ -26,13 +32,20 @@ sudo install -m 755 packaging/system-sleep/tempered /usr/lib/systemd/system-slee
 sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/tempered.conf
 sudo systemctl daemon-reload
 sudo udevadm control --reload
-sudo udevadm trigger --action=add --subsystem-match=hidraw --subsystem-match=usb
+sudo udevadm trigger --action=add --settle --parent-match=/sys/bus/usb/devices/3-1.3    # the stick's USB device
+sudo systemctl start tempered@hidrawN    # the stick's node, as udev would
 ```
 
 The order matters: the group must exist before udev reloads its
 rules, since udev resolves `GROUP=` names when it reads them, and
 `/run/tempered` must exist before the unit starts, since
 `ReadWritePaths=` fails on a missing directory.
+
+The package's `postinst` does the same, starting the daemon for each
+stick already plugged in; removing the package stops it, and purging
+it locks the `tempered` account rather than deleting it, as Debian does
+with system accounts.  The suspend hook restarts only the daemons
+whose stick is still present, without blocking resume.
 
 ## Checking
 

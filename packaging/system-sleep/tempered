@@ -17,8 +17,17 @@ pre)
     fi
     ;;
 post)
+    # Without blocking, which would hold up resume until each daemon is
+    # ready, and only for sticks still there: one unplugged during sleep
+    # would make a start wait for its device for 90 s.
     if [ -s "$state" ]; then
-        xargs systemctl start <"$state"
+        while read -r unit; do
+            node=${unit#tempered@}
+            node=${node%.service}
+            if [ -e "/dev/$node" ]; then
+                systemctl --no-block start "$unit"
+            fi
+        done <"$state"
     fi
     rm -f "$state"
     ;;

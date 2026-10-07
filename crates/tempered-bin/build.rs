@@ -26,11 +26,20 @@ fn git(args: &[&str]) -> Option<String> {
 
 fn main() {
     // Rebuild when the commit or the tags change.
-    for path in [".git/HEAD", ".git/refs/heads", ".git/refs/tags"] {
+    // The index changes when files are staged; edits not yet staged are
+    // caught by `make deb`, which touches this file to force a rerun.
+    for path in [
+        ".git/HEAD",
+        ".git/refs/heads",
+        ".git/refs/tags",
+        ".git/packed-refs",
+        ".git/index",
+    ] {
         println!("cargo::rerun-if-changed=../../{path}");
     }
     let package = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
-    let dirty = if git(&["status", "--porcelain"]).is_some() {
+    // Untracked files are not part of the build.
+    let dirty = if git(&["status", "--porcelain", "--untracked-files=no"]).is_some() {
         ".dirty"
     } else {
         ""

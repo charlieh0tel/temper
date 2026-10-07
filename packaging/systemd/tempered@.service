@@ -42,6 +42,12 @@ DeviceAllow=/dev/uhid rw
 
 CapabilityBoundingSet=
 NoNewPrivileges=yes
+# Lock files are created 0600 anyway; nothing the daemon makes needs
+# to be readable by others.
+UMask=0077
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes

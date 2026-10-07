@@ -1,19 +1,24 @@
 #!/bin/sh
-# Forgets the udev rules on remove; purge also takes the account.
+# Forgets the udev rules on remove.  Purge also locks the account
+# rather than deleting it, as Debian does with system accounts: a
+# deleted UID or GID could be reused by another account and inherit
+# what still names it, such as a hidraw node's group until replug.
 set -e
 
 case "$1" in
 remove | purge)
-    systemctl daemon-reload || true
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
     udevadm control --reload || true
     ;;
 esac
 
 case "$1" in
 purge)
-    rm -rf /run/tempered
+    rm -rf /run/tempered /run/tempered-sleep
     if getent passwd tempered >/dev/null; then
-        deluser --system tempered || true
+        usermod --lock --expiredate 1 --shell /usr/sbin/nologin tempered || true
     fi
     ;;
 esac
