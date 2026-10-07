@@ -1,4 +1,4 @@
-# tempered
+# tempered-hid
 
 Presents a PCsensor TEMPerGold USB thermometer as a Linux IIO device.
 
