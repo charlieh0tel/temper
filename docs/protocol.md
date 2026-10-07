@@ -71,7 +71,10 @@ slot, unused on this model.  Byte 1 of the calibration reply has no
 known meaning.
 
 Readings outside the sensor's -40 to 125 degrees C range (ElfThing
-`parseModel`) are rejected.
+`parseModel`) are rejected, as is a firmware string not starting with
+`TEMPerGold_`: a TEMPer2 shares the USB ID but not the layout
+(`tempered daemon` exits 3 on one).  A query fails if more than 16
+stale reports precede it.
 
 ## Writes
 

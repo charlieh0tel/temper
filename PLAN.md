@@ -4,7 +4,7 @@
 
 Read a PCsensor TEMPerGold USB thermometer and present it as a real
 Linux IIO device, so stock IIO consumers (libiio, `iio_info`,
-smartclockd) read it without knowing about the thermometer.  Shipped
+smartclock-sensord) read it without knowing about the thermometer.  Shipped
 as a Debian package with a systemd unit and udev rules.
 
 ## Decisions
@@ -47,16 +47,14 @@ keyboard handler mirrors to every keyboard.  Merely telling libinput to
 ignore it is not enough, so a udev rule sets `authorized=0` on that
 interface.  udev runs after the kernel has probed, so usbhid binds it
 briefly and the write then unbinds it
-(`usb_deauthorize_interface()`); to verify on hardware that the brief
-bind cannot start typing.
+(`usb_deauthorize_interface()`).  Not verified: that the brief bind
+cannot start typing.
 
 ### No writable ID on the stick
 
 The stick reports no USB serial number, and no source documents a
 command that writes one, a descriptor string, or any name or ID slot.
-PCsensor's own ElfThing 1.0.2 app (`resources/app.asar`, class
-`HIDTypeDevice`; download `ElfThing-1.0.2-win-x64.zip`, sha256
-`0557589d06840bbae85a5f11b46a71f14cbfe3082f5ee999230354c3974a78f5`)
+PCsensor's own ElfThing 1.0.2 app (see `docs/protocol.md`, "Sources")
 sends one write, set calibration (`01 81 55 01 ...`), and otherwise
 only reads.  Storing an ID in the stick's unused calibration slots
 was considered and rejected: untested, probably wears flash, and one
@@ -98,8 +96,7 @@ From `drivers/iio/common/hid-sensors/hid-sensor-attributes.c`,
   centi-degrees, scaled to milli-degrees C.
 - Numbered reports (IDs >= 1) everywhere, and every GET_REPORT reply
   full length: in 7.0, `hid_report_raw_event()` rejects short
-  reports where 6.10 padded them (checked against the 7.0 tag on
-  GitHub; no 7.0 tree here).  GET_REPORT is answered for both
+  reports where 6.10 padded them.  GET_REPORT is answered for both
   input and feature reports.
 - Change Sensitivity Absolute feature field, always 0: without it
   `in_temp_hysteresis` reads fail and `iio_info` shows an error.
@@ -141,7 +138,9 @@ mode on (`hid-sensor-trigger.c`).  Rare, but cheap to avoid.
 A `/usr/lib/systemd/system-sleep/` hook runs before
 `/sys/power/state` is written.  In `pre` it records the active
 `tempered@*` instances to a root-owned file under `/run` and stops
-them; in `post` it starts exactly those.  A glob cannot be used for
+them; in `post` it starts, without blocking, those whose hidraw node
+still exists (a stick unplugged during sleep would make a blocking
+start wait 90 s for its device).  A glob cannot be used for
 the start: `systemctl start` globs match only loaded units, and udev's
 `SYSTEMD_WANTS` does not fire again because the hidraw device stays
 active across suspend.  systemd-sleep(8) calls such hooks hacks and
@@ -173,14 +172,14 @@ reads as 0.  Readers therefore cannot see an error, only a value, so:
   destroyed (`UHID_DESTROY`; the kernel fails pending requests itself,
   so no thread needs to be answering).  The `iio:deviceN` directory goes away, so
   readers fail (`ENOENT`, or `ENODEV` on an open file), which
-  smartclockd already logs as absent.  The next good reading
+  smartclock-sensord already logs as absent.  The next good reading
   recreates both; the IIO device number may change, the link does
   not.
 - residual window: a read that starts during teardown, on a destroy or
   on any daemon stop, gets the kernel's 5 s timeout and 0
   (`uhid_dev_destroy()` stops answering before IIO unregisters).
   Removing the link first keeps link readers out of it; documented.
-- rejected: a sentinel value (smartclockd would log it as data), and
+- rejected: a sentinel value (smartclock-sensord would log it as data), and
   removing only the link (direct `iio:deviceN` readers would keep
   seeing the held value).
 - a systemd watchdog (`WatchdogSec=60s`) covers the daemon hanging.
@@ -246,10 +245,11 @@ before the service runs.
   `GROUP="tempered", MODE="0660"` instead.
 - No `PrivateDevices=`: its private `/dev` has no hidraw nodes.
   Instead `DevicePolicy=closed` with `DeviceAllow=char-hidraw rw` and
-  `DeviceAllow=/dev/uhid rw`: in systemd 255 `OpenFile=` is opened by
-  `systemd-executor`, likely already under the unit's device policy
-  (to verify on the real unit).  The second grants nothing extra,
-  since `/dev/uhid` is root-only.
+  `DeviceAllow=/dev/uhid rw`.  `OpenFile=` works this way on the real
+  unit; whether the second line is needed (systemd 255 opens
+  `OpenFile=` from `systemd-executor`, possibly under the device
+  policy) is untested, so it stays as a precaution.  It grants nothing
+  extra, since `/dev/uhid` is root-only.
 - udev resolves `GROUP=` names when it parses rules, so postinst
   creates the user before `udevadm control --reload` and
   `udevadm trigger`.  udev's `SYSTEMD_WANTS` fires only when a device
@@ -273,11 +273,15 @@ sensor while another exists (exit 3), the label lock keeps a replug
 from overlapping, and the root tests serialize (and refuse to run
 while any HID temperature sensor exists, such as a running
 `tempered@`: running them beside the service oopsed the kernel and
-killed the daemon, 2026-10-07).  Upstream fixes for temperature and
-humidity are in `patches/`, rebased onto 7.3-rc6 and compile-tested;
-they still need a runtime test before sending.  7.3 already fixes
-the driver's remove order (967d066f5334, `iio_device_register()`
-before teardown).
+killed the daemon, 2026-10-07).  Upstream fixes are in `patches/`, the
+v2 series as sent to linux-iio and linux-input on 2026-10-07: the
+hub's callback removal synchronized with raw events (found by the
+Sashiko review of v1), then per-instance callbacks in temperature and
+humidity.  On 7.3-rc6, checkpatch-clean and compile-tested; a runtime
+test with the patched modules (`two_sensors_survive_a_destroy` in
+`sensor.rs`, opt-in with `TEMPERED_TWO_SENSORS=1`) waits on a MOK
+enrollment for Secure Boot.  7.3 already fixes the temperature
+driver's remove order (967d066f5334).
 
 ### Polling
 
@@ -343,7 +347,8 @@ Library API (breaking): `hidraw::Error` (`Scan`, `Open` with the
 path, `NotFound`, `Several`) replaces `FindError` and the bare
 `io::Error` from `Stick::open`; every error variant that carries data
 is `#[non_exhaustive]`.  Added: `VENDOR_ID`/`PRODUCT_ID`, `AsFd` for
-`Hidraw`, constructors for every newtype, `CentiCelsius::celsius`,
+`Hidraw`, constructors for the value newtypes (`Firmware`, being
+validated, has none), `CentiCelsius::celsius`,
 `Stick::into_inner`/`transport_mut`, `Display` for `Command`, `Hash` on
 the result structs; `discover` skips entries that vanish mid-scan;
 `receive` waits without limit on an unrepresentable timeout instead of
@@ -370,9 +375,9 @@ sees uncommitted edits; the release workflow checks that the tag,
 `Cargo.toml` and the changelog agree before building, and defaults to
 no token permissions.
 
-Commits, in order: refactor (no behavior change); library API;
-daemon robustness; descriptor; packaging and release; kernel patches;
-docs; then the release.
+Done: refactor (83e6ab2), library API (a807960), daemon robustness
+(0cfb9be), descriptor (78ecf5e), packaging and release (a3af4ca),
+docs.  Remaining: the release, then yanking 1.0.0.
 
 ## Phases
 
@@ -407,7 +412,8 @@ docs; then the release.
    deauthorized.  The first install found the hidraw rule never
    matched (all `ATTRS{}` keys must match one ancestor); it now uses
    `usb_id`.  Replug works: `BindsTo=` stops the unit cleanly and
-   udev starts it again.  Remaining: the suspend hook.
+   udev starts it again.  Not yet tested on hardware: the suspend
+   hook, and the keyboard's brief bind before it is deauthorized.
 6. Debian packaging (`[package.metadata.deb]` in `tempered-bin`,
    `packaging/debian/`), release and audit workflows, Makefile
    (`make ci`, `test-hw` under sudo, `deb`, `release`),
@@ -417,4 +423,6 @@ docs; then the release.
    both .debs, the apt repo picked up `tempered`, and `tempered-hid`
    is on crates.io (the first version by hand; Trusted Publishing
    from the next tag).  **Done.**
-7. Docs: protocol and descriptor rationale in `docs/`.
+7. Docs: `docs/protocol.md`, `docs/daemon.md`, `docs/running.md`, and
+   the descriptor rationale above.  Checked against the code for
+   2.0.0.  **Done.**

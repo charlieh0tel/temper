@@ -1,0 +1,61 @@
+From c426910a69babd0893f196bfa99effdd5f18f48c Mon Sep 17 00:00:00 2001
+From: Christopher Hoover <ch@murgatroid.com>
+Date: Wed, 7 Oct 2026 11:39:13 -0700
+Subject: [PATCH v2 1/3] HID: hid-sensor-hub: Synchronize callback removal with
+ raw events
+
+sensor_hub_raw_event() holds pdata->lock while it looks a callback up
+in dyn_callback_list and calls its capture_sample() and send_event().
+sensor_hub_remove_callback() takes only dyn_callback_lock, so it can
+unlink a callback and return while another CPU is between the lookup
+and the call.  The sensor drivers remove their callback in .remove()
+and keep the struct hid_sensor_hub_callbacks in memory that devres
+frees right after, so a report racing an unbind can call through
+freed function pointers.
+
+Take pdata->lock in sensor_hub_remove_callback() too, outside
+dyn_callback_lock as in sensor_hub_raw_event(), so the removal waits
+for a report in flight.  pdata->lock is otherwise only taken in
+sensor_hub_raw_event(), and callbacks are removed from process
+context.
+
+Fixes: 401ca24fb34a ("HID: sensors: introduce sensor framework")
+Cc: stable@vger.kernel.org
+Signed-off-by: Christopher Hoover <ch@murgatroid.com>
+---
+ drivers/hid/hid-sensor-hub.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/hid/hid-sensor-hub.c b/drivers/hid/hid-sensor-hub.c
+index 6470a290ebfc..7cf9f398592e 100644
+--- a/drivers/hid/hid-sensor-hub.c
++++ b/drivers/hid/hid-sensor-hub.c
+@@ -173,7 +173,14 @@ int sensor_hub_remove_callback(struct hid_sensor_hub_device *hsdev,
+ 	struct sensor_hub_data *pdata = hid_get_drvdata(hsdev->hdev);
+ 	unsigned long flags;
+ 
+-	spin_lock_irqsave(&pdata->dyn_callback_lock, flags);
++	/*
++	 * sensor_hub_raw_event() holds pdata->lock while it looks up a
++	 * callback and calls it.  Taking it here too means no report is
++	 * still using the callback once it is unlinked, so its owner may
++	 * free it as soon as this returns.
++	 */
++	spin_lock_irqsave(&pdata->lock, flags);
++	spin_lock(&pdata->dyn_callback_lock);
+ 	list_for_each_entry(callback, &pdata->dyn_callback_list, list)
+ 		if (callback->usage_id == usage_id &&
+ 						callback->hsdev == hsdev) {
+@@ -181,7 +188,8 @@ int sensor_hub_remove_callback(struct hid_sensor_hub_device *hsdev,
+ 			kfree(callback);
+ 			break;
+ 		}
+-	spin_unlock_irqrestore(&pdata->dyn_callback_lock, flags);
++	spin_unlock(&pdata->dyn_callback_lock);
++	spin_unlock_irqrestore(&pdata->lock, flags);
+ 
+ 	return 0;
+ }
+-- 
+2.43.0
+

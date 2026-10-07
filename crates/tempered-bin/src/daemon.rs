@@ -96,8 +96,8 @@ pub(crate) enum Exit {
     Failure,
     /// A configuration error; not restarted.
     Config,
-    /// The IIO device cannot be presented: another HID temperature
-    /// sensor exists, or the device never appeared.  Not restarted.
+    /// The device cannot be presented: unsupported firmware, another
+    /// HID temperature sensor, or no IIO device.  Not restarted.
     CannotPresent,
 }
 
@@ -132,7 +132,7 @@ pub(crate) struct Config {
 enum Message {
     /// A stick query's result.
     Reading(Result<CentiCelsius, protocol::Error>),
-    /// `SIGTERM` or `SIGINT`.
+    /// `SIGTERM`, `SIGINT` or `SIGHUP`.
     Shutdown,
     /// A `DESTROY` the destroy thread wrote.
     Destroyed(io::Result<()>),

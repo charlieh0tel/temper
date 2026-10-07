@@ -1,21 +1,21 @@
-# `tempered daemon` design
+# `tempered daemon`
 
-Phase 4 of `PLAN.md`.  The daemon reads the stick and presents it as
-an IIO device through `/dev/uhid`, using the codec in
-`crates/tempered-bin/src/uhid.rs` and the sensor in `sensor.rs`.  This
-is the design; `PLAN.md` holds the decisions it builds on.  Kernel
+How the daemon works.  It reads the stick and presents it as an IIO
+device through `/dev/uhid`, using the codec in
+`crates/tempered-bin/src/uhid.rs` and the sensor in `sensor.rs`;
+`PLAN.md` holds the decisions it builds on.  Kernel
 references are to `drivers/hid/uhid.c`, `drivers/hid/hidraw.c` and
 `drivers/hid/hid-sensor-hub.c`.
 
 ## Command line
 
 ```
-tempered daemon [--device /dev/hidrawN] [--label NAME]
+tempered [--device /dev/hidrawN] daemon [--label NAME]
                 [--interval 10s] [--hold 60s]
 ```
 
-Each option also reads an environment variable (clap's `env`
-feature), so the unit's `EnvironmentFile=/etc/default/tempered`
+`--label`, `--interval` and `--hold` also read an environment variable
+(clap's `env` feature), so the unit's `EnvironmentFile=/etc/default/tempered`
 configures it:
 
 - `TEMPERED_LABEL`, default `temperature`: matches
@@ -26,9 +26,10 @@ configures it:
   missed reading never expires the hold.
 
 `--device` comes from the unit instance (`/dev/%I`); without it the
-only attached stick is used.  Every configuration error, including
-the cross-field hold check, is reported as a clap error and exits 2,
-which the unit lists in `RestartPreventExitStatus=`.
+only attached stick is used.  Option errors, including the
+cross-field hold check, are clap errors; those and a bad `LISTEN_*`
+handoff from systemd exit 2, which the unit lists in
+`RestartPreventExitStatus=`.
 
 It runs in the foreground and never forks.
 
@@ -46,15 +47,17 @@ status would only make `Restart=on-failure` churn.  Status 3 is not
 restarted (`RestartPreventExitStatus=2 3`): each attempt takes 30 s
 or more, so systemd's start limit would never trip and the daemon
 would cycle forever.  A panic aborts the process in release builds
-(`panic = "abort"`, `SIGABRT`, restarted); in dev builds it unwinds
-and `main` exits 1.
+(`panic = "abort"`, `SIGABRT`, restarted).  In dev builds a panic on
+the main thread exits 101, and one on a worker thread ends only that
+thread; a dead poll thread then stops the watchdog pings.
 
 ## Logging
 
 To stderr, one line per state transition, not per reading: started,
-reading resumed, readings failing (once, with the error), device
-created, link created, held value expired and device destroyed,
-stopping.  A long outage repeats its failure line hourly.  Each line
+reading resumed, readings failing (once, with the error), the IIO
+device created (with its path), held value expired and device
+destroyed, label in use and waiting, a link not yet written, and
+stopped.  A long outage repeats its failure line hourly.  Each line
 starts with a `sd-daemon(3)` priority prefix (`<3>` error, `<4>`
 warning, `<6>` info, `<7>` debug), which journald honors.  When stderr
 is not journald's (`JOURNAL_STREAM` unset or not matching stderr's
@@ -94,8 +97,8 @@ does not wait for the first reading.
 ## Threads and state
 
 Shared: `Mutex<Option<Sensor>>`, `None` while no virtual device
-exists, and the uhid `File`, cloned per thread with `try_clone` (one
-open instance; never reopened).  Each event is one `write()`, which
+exists, and the uhid `File`, shared as an `Arc<File>` (one open
+instance; never reopened).  Each event is one `write()`, which
 the kernel takes whole under its device lock and answers with the
 full count.
 
@@ -152,7 +155,7 @@ when the device is gone) and `read` returns `EIO`; `ENODEV` comes only
 from write and ioctl (`hidraw.c`).  The public `Transport` trait
 returns `io::Result`, so it is not changed: `Hidraw::receive` reports
 hang-up as an `ENODEV` `io::Error`, and the library's `protocol::Error`
-gains a `Gone` variant ("the device was removed") that the conversion
+has a `Gone` variant ("the device was removed") that the conversion
 from `io::Error` produces for `ENODEV`, covering the write path too.
 
 ## Only one HID temperature sensor
@@ -184,12 +187,14 @@ So the daemon's sensor must be the only one on the machine:
   lock (`test_support::one_temperature_sensor`).
 
 A fix for the kernel (per-instance callbacks, as the accelerometer
-driver does) would lift this.
+driver does; in `patches/`, sent upstream, not yet merged) would lift
+this.
 
 ## Supervisor
 
 A pure state machine, unit-tested without devices: inputs are a
-reading, a failure (or gone) with its time; outputs are actions.
+reading or a failure with its time; outputs are actions.  An unplug
+(`Gone`) is handled by the main thread, not the supervisor.
 
 - **Absent.**  A good reading: set the sensor, write `CREATE2`, wait
   up to 10 s for the IIO device (pinging the watchdog and checking for
@@ -206,8 +211,8 @@ reading, a failure (or gone) with its time; outputs are actions.
   the link, write `DESTROY`, clear the sensor; go to Absent.  Ages are
   measured on `CLOCK_BOOTTIME`, so time suspended counts: a reading
   from before a suspend is not served as fresh after it.
-- **Gone** from either state: remove the link, `DESTROY` if Present,
-  exit 0.
+- **Gone**, handled by the main thread in either state: remove the
+  link, `DESTROY` if Present, exit 0.
 
 `CREATE2` fields: name = the label, phys = `tempered`, uniq =
 `tempered-<pid>-<n>` (unique per creation, so an IIO device from an
@@ -220,7 +225,7 @@ After `CREATE2`, the main thread polls `/sys/bus/iio/devices` every
 100 ms for an `iio:device*` entry (not `trigger*`: the driver also
 registers a trigger under the same parent) whose resolved path has an
 ancestor with `HID_UNIQ=<uniq>` in its `uevent`.  This matching is
-already tested against the kernel (`sensor.rs`).
+tested against the kernel (`sensor.rs`).
 
 The label is owned through `/run/tempered/<label>.lock`, mode 0600,
 taken with an exclusive `flock` at startup and held for the process's
@@ -241,7 +246,7 @@ exit.  If writing the link fails while Present, that is logged and
 retried with each reading.
 
 `/run/tempered` itself comes from tmpfiles.d, mode 0755, owned by
-`tempered`, so readers such as smartclockd can follow the link.
+`tempered`, so readers such as smartclock-sensord can follow the link.
 
 ## Shutdown
 
@@ -285,7 +290,7 @@ effect until the kernel returns.
 - Notification and watchdog enablement: unit tests with a
   `UnixDatagram` pair and set environments.
 - fd adoption: unit tests of the `LISTEN_*` parsing.
-- Root only (`make test-hw` later): a fake stick made from a second
+- Root only (`make test-hw`): a fake stick made from a second
   uhid device (`BUS_USB`, phys ending `/input1`, VID:PID 3553:a001)
   that answers hidraw writes (`UHID_OUTPUT`) with `INPUT2`, so the
   real binary runs as a subprocess with `--device /dev/hidrawN`:
@@ -294,5 +299,9 @@ effect until the kernel returns.
     device, and recovery brings both back;
   - destroying the fake (unplug) makes the daemon clean up and exit 0;
   - `SIGTERM` cleans up and exits 0; `kill -9` leaves no IIO device.
-- On the real unit (phase 5): `OpenFile=` with `DevicePolicy=closed`,
-  with and without `DeviceAllow=/dev/uhid rw`; the replug race.
+- Root only and opt-in (`TEMPERED_TWO_SENSORS=1`): two sensors, one
+  destroyed while the other sends input reports.  Oopses a stock
+  kernel; for testing the fix in `patches/`.
+- On the real unit: `OpenFile=` under `DevicePolicy=closed` and
+  replug work (`PLAN.md`, phase 5); without `DeviceAllow=/dev/uhid
+  rw`, and suspend, are untested.

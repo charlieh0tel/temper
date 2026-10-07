@@ -4,7 +4,7 @@
 # frozen daemon, each timing out after 5 s.  A glob cannot do the
 # start: `systemctl start` globs match only loaded units, and udev does
 # not start them again, since the stick stays plugged in.  See
-# docs/daemon.md.
+# PLAN.md, "System suspend".
 
 state=/run/tempered-sleep
 

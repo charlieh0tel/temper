@@ -21,8 +21,8 @@ ExecStart=/usr/bin/tempered --device /dev/%I daemon
 OpenFile=/dev/uhid:uhid
 WatchdogSec=60s
 # 2 is a configuration error and 3 a device that cannot be presented
-# (another HID temperature sensor, or no IIO device); retrying fixes
-# neither.  1 is a runtime failure and is retried.
+# (unsupported firmware, another HID temperature sensor, or no IIO
+# device); retrying fixes neither.  1 is a runtime failure and is retried.
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=2 3

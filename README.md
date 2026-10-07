@@ -16,6 +16,9 @@ sudo tempered log     # JSON Lines: --interval, --count, --time rfc3339|unix
 sudo tempered daemon  # IIO device, linked as /run/tempered/temperature
 ```
 
+`read`, `info` and `log` talk to the stick directly; stop the daemon
+first (`systemctl stop 'tempered@*'`).
+
 ## Layout
 
 - `crates/tempered-hid`: library that talks to the stick; no daemon
@@ -24,4 +27,6 @@ sudo tempered daemon  # IIO device, linked as /run/tempered/temperature
 - `packaging/`: udev rules, systemd unit, tmpfiles.d, sleep hook,
   Debian maintainer scripts.  `make deb` builds the package;
   `RELEASING.md` covers releases.
+- `patches/`: upstream kernel fixes for hid-sensor-hub,
+  hid-sensor-temperature and hid-sensor-humidity (shared callbacks).
 - `PLAN.md`, `docs/`: decisions, protocol, daemon design, running.
