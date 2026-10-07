@@ -125,7 +125,7 @@ mode on (`hid-sensor-trigger.c`).  Rare, but cheap to avoid.
 
 A `/usr/lib/systemd/system-sleep/` hook runs before
 `/sys/power/state` is written.  In `pre` it records the active
-`temperedd@*` instances to a root-owned file under `/run` and stops
+`tempered@*` instances to a root-owned file under `/run` and stops
 them; in `post` it starts exactly those.  A glob cannot be used for
 the start: `systemctl start` globs match only loaded units, and udev's
 `SYSTEMD_WANTS` does not fire again because the hidraw device stays
@@ -181,14 +181,14 @@ in `drivers/iio/industrialio-core.c` reads it only from the parent's
 firmware node, which a uhid-created device lacks, and
 `hid-sensor-temperature` has no `read_label`.
 
-So the daemon links its IIO device as `/run/temperedd/<label>`; readers
-use `/run/temperedd/<label>/in_temp_raw` and friends.  The label is set
-by `TEMPEREDD_LABEL` in `/etc/default/temperedd`, default `temperature`,
+So the daemon links its IIO device as `/run/tempered/<label>`; readers
+use `/run/tempered/<label>/in_temp_raw` and friends.  The label is set
+by `TEMPERED_LABEL` in `/etc/default/tempered`, default `temperature`,
 one value for all sticks: the stick has no serial number, and the
 port path is too fragile to key on.  Only one stick is expected; a
 second gets `-1` appended, silently; which stick gets the suffix
 depends on start order.  Each instance holds an `flock` on
-`/run/temperedd/<label>.lock` to own a label (released on crash).  The
+`/run/tempered/<label>.lock` to own a label (released on crash).  The
 owner replaces its link atomically (symlink to a temporary name, then
 rename).  The link targets the fully resolved sysfs path, which
 contains the never-reused HID sequence number
@@ -199,15 +199,15 @@ The daemon finds its IIO device by setting a unique `uniq` in
 `UHID_CREATE2` and matching it under
 `/sys/devices/virtual/misc/uhid/*/uevent`.
 
-`/run/temperedd` is created by tmpfiles.d, owned by the `temperedd`
+`/run/tempered` is created by tmpfiles.d, owned by the `tempered`
 user, so it survives any one instance stopping; the unit's
-`ProtectSystem=strict` needs `ReadWritePaths=/run/temperedd`.
+`ProtectSystem=strict` needs `ReadWritePaths=/run/tempered`.
 
 ### Privileges
 
-The template unit `temperedd@.service` is started by udev per stick
+The template unit `tempered@.service` is started by udev per stick
 (`TAG+="systemd"`, `SYSTEMD_WANTS`), and `BindsTo=` the hidraw device
-so an unplug stops it.  It runs as the static system user `temperedd`
+so an unplug stops it.  It runs as the static system user `tempered`
 (created in postinst, as smartclockmon does) with no capabilities.
 Not `DynamicUser=`: the udev rule below needs a group that exists
 before the service runs.
@@ -219,7 +219,7 @@ before the service runs.
   `#[expect(unsafe_code, reason = ...)]` (approved).
 - `OpenFile=` does not expand `%I` in systemd 255, so the hidraw node
   cannot be passed that way; udev gives the stick's data interface
-  `GROUP="temperedd", MODE="0660"` instead.
+  `GROUP="tempered", MODE="0660"` instead.
 - No `PrivateDevices=`: its private `/dev` has no hidraw nodes.
   Instead `DevicePolicy=closed` with `DeviceAllow=char-hidraw rw`.
   `/dev/uhid` needs no `DeviceAllow=`, since PID 1 opens it before
@@ -227,7 +227,7 @@ before the service runs.
 - udev resolves `GROUP=` names when it parses rules, so postinst
   creates the user before `udevadm control --reload` and
   `udevadm trigger`.  udev's `SYSTEMD_WANTS` fires only when a device
-  first becomes active, so postinst also starts `temperedd@` for a
+  first becomes active, so postinst also starts `tempered@` for a
   stick already plugged in.
 - `RestrictAddressFamilies=AF_UNIX` (for `sd_notify`).
 - The daemon also runs without systemd, for tests and manual use: if
@@ -241,7 +241,7 @@ before the service runs.
 
 ### Polling
 
-Default interval 10 s, minimum 1 s, set in `/etc/default/temperedd`;
+Default interval 10 s, minimum 1 s, set in `/etc/default/tempered`;
 not settable through IIO (see Report Interval above).  Each poll also
 pushes an input report, so IIO buffered mode and triggers get data.
 
@@ -256,14 +256,14 @@ A workspace of two crates, as smartclockmon does:
   `#[non_exhaustive]` public enums and result structs, documented
   (`missing_docs`).  MIT OR Apache-2.0.  Whether to publish it to
   crates.io is undecided.
-- `crates/tempered-cli`, the `tempered` command-line tool (`read`,
-  `info`), for diagnostics.  It and the daemon both poll the stick, so
-  it is used with the daemon stopped.  anyhow and clap.
-  GPL-3.0-or-later.
-- `crates/temperedd` (from phase 2), the daemon, "temper daemon":
-  uhid, IIO, `/run` links, configuration, systemd.  The unit, system
-  user, `/run/temperedd` and `/etc/default/temperedd` take its name.
-  anyhow.  GPL-3.0-or-later.
+- `crates/tempered-bin`, the one program, `tempered` ("temper
+  daemon"): `tempered read` and `tempered info` for diagnostics, and
+  `tempered daemon`, which runs in the foreground under systemd
+  (`Type=notify`, watchdog, restarts; it never forks): uhid, IIO,
+  `/run` links, configuration.  `read` and `info` poll the stick too,
+  so they are used with the daemon stopped.  The unit, system user,
+  `/run/tempered` and `/etc/default/tempered` take its name.  anyhow
+  and clap.  GPL-3.0-or-later.
 Toolchain pinned to match smartclockmon.  CI, release and audit use
 the shared `charlieh0tel/deb-workflows`.  Released as a .deb through
 the apt repo, not crates.io.
@@ -277,7 +277,7 @@ the apt repo, not crates.io.
    the stick; see `docs/protocol.md`.  **Done.**
 2. uhid event codec, golden-byte tests.
 3. HID sensor report descriptor and sensor state machine, tests.
-4. Daemon: threads, stale policy, `/run/temperedd` link, signals,
+4. Daemon: threads, stale policy, `/run/tempered` link, signals,
    watchdog.  Root-only tests (`make test-hw`): one with no stick that
    creates the device, waits for IIO, and checks raw, scale and that a
    read after idle returns at once; one with the stick.

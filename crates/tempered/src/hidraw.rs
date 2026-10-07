@@ -23,8 +23,8 @@ const SYSFS_HIDRAW: &str = "/sys/class/hidraw";
 const DEV: &str = "/dev";
 
 /// `BUS_USB` from `include/uapi/linux/input.h`.  The virtual device
-/// `temperedd` creates has the same VID:PID on `BUS_VIRTUAL`, so the
-/// bus is what tells them apart.
+/// `tempered daemon` creates has the same VID:PID on `BUS_VIRTUAL`, so
+/// the bus is what tells them apart.
 const BUS_USB: Bus = Bus(0x0003);
 
 /// `HID_PHYS` suffix of the stick's data interface, USB interface 1.

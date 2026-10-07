@@ -5,7 +5,8 @@ use clap::Parser;
 use clap::Subcommand;
 use tempered::protocol::Stick;
 
-/// Read a PCsensor TEMPerGold USB thermometer.
+/// Read a PCsensor TEMPerGold USB thermometer and present it as a Linux
+/// IIO device.
 #[derive(Debug, Parser)]
 #[command(version)]
 struct Cli {

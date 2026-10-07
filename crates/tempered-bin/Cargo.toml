@@ -1,6 +1,6 @@
 [package]
-name = "tempered-cli"
-description = "Command-line tool for a PCsensor TEMPerGold USB thermometer"
+name = "tempered-bin"
+description = "Read a PCsensor TEMPerGold USB thermometer and present it as a Linux IIO device"
 license = "GPL-3.0-or-later"
 publish = false
 version.workspace = true
