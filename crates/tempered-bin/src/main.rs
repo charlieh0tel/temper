@@ -3,6 +3,11 @@ mod log;
     not(test),
     expect(dead_code, reason = "used by the daemon, which arrives in phase 4")
 )]
+mod sensor;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "used by the daemon, which arrives in phase 4")
+)]
 mod uhid;
 
 use std::path::PathBuf;

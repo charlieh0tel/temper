@@ -106,6 +106,16 @@ From `drivers/iio/common/hid-sensors/hid-sensor-attributes.c`,
 - Friendly Name (0x200301) is read by no kernel code but
   hid-sensor-custom; it is not included.
 
+As built (`crates/tempered-bin/src/sensor.rs`): one physical
+collection, usage 0x200033, with report ID 1 for both a feature report
+(Reporting State and Power State as 1-based named arrays in logical
+collections, Report Interval u32, Change Sensitivity Absolute u16;
+9 bytes with the ID) and an input report (temperature i16; 3 bytes).
+Reporting State lists only the No Events and All Events selectors the
+kernel defines.  No Sensor State or Event fields: the Linux drivers do
+not read them.  Writes to Reporting State and Power State are stored
+and read back; writes to Report Interval and sensitivity are dropped.
+
 ### Report Interval is always 0
 
 On runtime resume the sensor driver reads Report Interval and sleeps
@@ -199,7 +209,9 @@ unambiguous.  The label is also the uhid device name (`HID_NAME`).
 
 The daemon finds its IIO device by setting a unique `uniq` in
 `UHID_CREATE2` and matching it under
-`/sys/devices/virtual/misc/uhid/*/uevent`.
+`/sys/devices/virtual/misc/uhid/*/uevent`.  Only `iio:device*`
+entries count: the sensor driver also registers a trigger,
+`temperature-devN`, listed as `triggerN` under the same parent.
 
 `/run/tempered` is created by tmpfiles.d, owned by the `tempered`
 user, so it survives any one instance stopping; the unit's
@@ -286,7 +298,10 @@ the apt repo, not crates.io.
 2. uhid event codec (`crates/tempered-bin/src/uhid.rs`), golden-byte
    tests, and a root-only round trip through the real kernel
    (create, `UHID_START`, destroy, `UHID_STOP`).  **Done.**
-3. HID sensor report descriptor and sensor state machine, tests.
+3. HID sensor report descriptor and sensor state machine, tests, and
+   a root-only test against the real drivers: the IIO device appears,
+   `in_temp_raw` and `in_temp_scale` are right, hysteresis reads, and
+   a read after 4 s idle returns at once.  **Done.**
 4. Daemon: threads, stale policy, `/run/tempered` link, signals,
    watchdog.  Root-only tests (`make test-hw`): one with no stick that
    creates the device, waits for IIO, and checks raw, scale and that a

@@ -63,6 +63,13 @@ impl Bus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RequestId(u32);
 
+impl RequestId {
+    #[cfg(test)]
+    pub(crate) const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+}
+
 /// A report number (report ID); 0 when the device uses none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ReportNumber(pub(crate) u8);
