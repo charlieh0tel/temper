@@ -34,6 +34,23 @@ ID table is easy to extend.  The stick also exposes a boot keyboard
 interface that can type readings; a udev rule makes the system ignore
 it.
 
+### No writable ID on the stick
+
+The stick reports no USB serial number, and no source documents a
+command that writes one, a descriptor string, or any name or ID slot.
+PCsensor's own ElfThing 1.0.2 app (`resources/app.asar`, class
+`HIDTypeDevice`; download `ElfThing-1.0.2-win-x64.zip`, sha256
+`0557589d06840bbae85a5f11b46a71f14cbfe3082f5ee999230354c3974a78f5`)
+sends one write, set calibration (`01 81 55 01 ...`), and otherwise
+only reads.  Storing an ID in the stick's unused calibration slots
+was considered and rejected: untested, probably wears flash, and one
+slot offsets the reading.  The MCU is unknown and no reflash path is
+published.  Hence the label is configuration, not device state.
+
+`tempered info` reports the read-only extras the vendor app uses:
+sensor type (`01 87 ee`) and manufacture date (`01 8a`), the latter
+untested on TEMPerGold.
+
 ### uhid without unsafe
 
 `struct uhid_event` is encoded and decoded by hand to bytes and moved
@@ -72,8 +89,10 @@ So the daemon, which knows which IIO device it created, links it as
 to `temperature`; `-1`, `-2`, ... are appended, in order of arrival,
 only when two sticks claim the same label.  The label is also the
 uhid device name (`HID_NAME`) and the descriptor's Friendly Name
-property.  Where the label is configured is open (the stick has no
-serial number).  Sharing of `/run/tempered` between unit instances is
+property.  It is set by `TEMPERED_LABEL` in `/etc/default/tempered`,
+one value for all sticks: the stick has no serial number, and the
+port path is too fragile to key on.  Only one stick is expected.
+Sharing of `/run/tempered` between unit instances is
 to be settled in phase 5.
 
 ### Privileges

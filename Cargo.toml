@@ -2,6 +2,7 @@
 name = "tempered"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
 license = "GPL-3.0-or-later"
 description = "Present a PCsensor TEMPerGold USB thermometer as a Linux IIO device via uhid"
