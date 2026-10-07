@@ -9,10 +9,12 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::time::Instant;
 
 use rustix::event::PollFd;
 use rustix::event::PollFlags;
 use rustix::event::Timespec;
+use rustix::io::Errno;
 
 use crate::protocol::REPORT_LEN;
 use crate::protocol::Report;
@@ -173,20 +175,36 @@ impl Transport for Hidraw {
     }
 
     fn receive(&mut self, timeout: Duration) -> io::Result<Option<Report>> {
-        let timeout = Timespec::try_from(timeout).map_err(io::Error::other)?;
-        let mut fds = [PollFd::new(&self.file, PollFlags::IN)];
-        if rustix::event::poll(&mut fds, Some(&timeout))? == 0 {
-            return Ok(None);
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let remaining = Timespec::try_from(remaining).map_err(io::Error::other)?;
+            let mut fds = [PollFd::new(&self.file, PollFlags::IN)];
+            match rustix::event::poll(&mut fds, Some(&remaining)) {
+                Ok(0) => return Ok(None),
+                Ok(_) => {}
+                Err(Errno::INTR) => continue,
+                Err(errno) => return Err(errno.into()),
+            }
+            // hidraw sets these only once the device is gone; a read
+            // would then fail with EIO (drivers/hid/hidraw.c).
+            if fds[0].revents().intersects(PollFlags::HUP | PollFlags::ERR) {
+                return Err(Errno::NODEV.into());
+            }
+            let mut report = [0; REPORT_LEN];
+            let n = match self.file.read(&mut report) {
+                Ok(n) => n,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            if n != REPORT_LEN {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("hidraw report of {n} bytes, expected {REPORT_LEN}"),
+                ));
+            }
+            return Ok(Some(report));
         }
-        let mut report = [0; REPORT_LEN];
-        let n = self.file.read(&mut report)?;
-        if n != REPORT_LEN {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!("hidraw report of {n} bytes, expected {REPORT_LEN}"),
-            ));
-        }
-        Ok(Some(report))
     }
 }
 

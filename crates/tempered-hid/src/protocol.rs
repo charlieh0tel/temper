@@ -11,6 +11,8 @@ use std::io;
 use std::ops::RangeInclusive;
 use std::time::Duration;
 
+use rustix::io::Errno;
+
 /// Length of every report in either direction.
 pub const REPORT_LEN: usize = 8;
 
@@ -92,7 +94,11 @@ impl Command {
 pub enum Error {
     /// Reading from or writing to the stick failed.
     #[error("stick I/O")]
-    Io(#[from] io::Error),
+    Io(#[source] io::Error),
+    /// The stick was removed.  A [`Transport`] reports this as an
+    /// `ENODEV` I/O error.
+    #[error("stick removed")]
+    Gone,
     /// The stick kept sending unrequested reports.
     #[error("too many stale reports before {0:?}")]
     Stale(Command),
@@ -127,6 +133,16 @@ pub enum Error {
     OutOfRange(CentiCelsius),
 }
 
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        if error.raw_os_error() == Some(Errno::NODEV.raw_os_error()) {
+            Self::Gone
+        } else {
+            Self::Io(error)
+        }
+    }
+}
+
 /// A channel to the stick's data interface.  [`crate::hidraw::Hidraw`]
 /// is the usual one; implement this to reach the stick some other way.
 pub trait Transport {
@@ -134,6 +150,7 @@ pub trait Transport {
     fn send(&mut self, report: &Report) -> io::Result<()>;
 
     /// The next report, or `None` if none arrives within `timeout`.
+    /// A removed device is reported as an `ENODEV` error.
     fn receive(&mut self, timeout: Duration) -> io::Result<Option<Report>>;
 }
 
@@ -552,6 +569,32 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    /// A stick that was unplugged.
+    #[derive(Debug)]
+    struct Removed;
+
+    impl Transport for Removed {
+        fn send(&mut self, _report: &Report) -> io::Result<()> {
+            Err(Errno::NODEV.into())
+        }
+
+        fn receive(&mut self, _timeout: Duration) -> io::Result<Option<Report>> {
+            Err(Errno::NODEV.into())
+        }
+    }
+
+    #[test]
+    fn removed_stick_is_gone() {
+        let mut stick = Stick::new(Removed);
+        assert!(matches!(stick.temperature(), Err(Error::Gone)));
+    }
+
+    #[test]
+    fn other_io_errors_stay_io() {
+        let error = Error::from(io::Error::from(Errno::IO));
+        assert!(matches!(error, Error::Io(_)));
     }
 
     #[test]
