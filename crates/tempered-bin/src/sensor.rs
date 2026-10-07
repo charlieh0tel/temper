@@ -3,7 +3,7 @@
 //!
 //! Sources, all in the kernel tree: `include/linux/hid-sensor-ids.h`
 //! (usages), `drivers/hid/hid-sensor-hub.c` (`sensor_hub_input_get_
-//! attribute_info()`: a field is found by its physical collection's
+//! attribute_info()`: a field is found by its application collection's
 //! usage, and by its first usage or its logical collection's usage),
 //! `drivers/iio/common/hid-sensors/hid-sensor-attributes.c` and
 //! `hid-sensor-trigger.c` (which properties are read and written), and
@@ -35,13 +35,14 @@ const REPORTING_STATE_NO_EVENTS: u8 = ENUM_BASE;
 /// Power State selectors, in descriptor order: Undefined, then D0.
 const POWER_STATE_D0_FULL_POWER: u8 = ENUM_BASE + 1;
 
-/// The report descriptor.  One physical collection, the temperature
-/// sensor, holding a feature report and an input report, both ID 1.
+/// The report descriptor.  One application collection, the temperature
+/// sensor, as the HID sensor usage examples have it, holding a feature
+/// report and an input report, both ID 1.
 #[rustfmt::skip]
 pub(crate) const DESCRIPTOR: &[u8] = &[
     0x05, 0x20,                   // Usage Page (Sensors)
     0x09, 0x33,                   // Usage (Environmental: Temperature)
-    0xa1, 0x00,                   // Collection (Physical)
+    0xa1, 0x01,                   // Collection (Application)
     0x85, REPORT_ID,              //   Report ID (1)
 
     // Feature report.
@@ -75,7 +76,7 @@ pub(crate) const DESCRIPTOR: &[u8] = &[
     // so the kernel takes milliseconds.
     0x0a, 0x0e, 0x03,             //   Usage (Property: Report Interval)
     0x15, 0x00,                   //   Logical Minimum (0)
-    0x27, 0xff, 0xff, 0xff, 0xff, //   Logical Maximum (4294967295)
+    0x27, 0xff, 0xff, 0xff, 0x7f, //   Logical Maximum (2147483647)
     0x75, 0x20,                   //   Report Size (32)
     0x95, 0x01,                   //   Report Count (1)
     0x65, 0x00,                   //   Unit (None)
@@ -94,11 +95,14 @@ pub(crate) const DESCRIPTOR: &[u8] = &[
 
     // Input report.  Unit None with exponent -2: the kernel's scale
     // table matches only Unit 0 or degrees, giving in_temp_scale 10, so
-    // raw centi-degrees C read as milli-degrees C.
+    // raw centi-degrees C read as milli-degrees C.  32 bits, though the
+    // stick's values fit 16: the driver's buffered path reads every
+    // sample as 32 bits (temperature_capture_sample()), so a 16-bit field
+    // would hand it two stray bytes, wrong for negative temperatures.
     0x0a, 0x34, 0x04,             //   Usage (Data: Environmental Temperature)
     0x16, 0x00, 0x80,             //   Logical Minimum (-32768)
     0x26, 0xff, 0x7f,             //   Logical Maximum (32767)
-    0x75, 0x10,                   //   Report Size (16)
+    0x75, 0x20,                   //   Report Size (32)
     0x95, 0x01,                   //   Report Count (1)
     0x65, 0x00,                   //   Unit (None)
     0x55, 0x0e,                   //   Unit Exponent (-2)
@@ -110,8 +114,8 @@ pub(crate) const DESCRIPTOR: &[u8] = &[
 /// interval (u32), sensitivity (u16).
 const FEATURE_REPORT_LEN: usize = 1 + 1 + 1 + 4 + 2;
 
-/// Input report length: ID, temperature (i16).
-const INPUT_REPORT_LEN: usize = 1 + 2;
+/// Input report length: ID, temperature (i32).
+const INPUT_REPORT_LEN: usize = 1 + 4;
 
 /// The feature values the kernel may set.  Report interval and
 /// sensitivity are always reported as 0, so writes to them are dropped.
@@ -252,7 +256,7 @@ impl Sensor {
     fn input_report(&self) -> Vec<u8> {
         let mut report = Vec::with_capacity(INPUT_REPORT_LEN);
         report.push(REPORT_ID);
-        report.extend_from_slice(&self.temperature.get().to_le_bytes());
+        report.extend_from_slice(&i32::from(self.temperature.get()).to_le_bytes());
         report
     }
 }
@@ -322,12 +326,12 @@ mod tests {
             get(&mut sensor, ReportType::Input),
             Reply::GetReport {
                 id: RequestId::new(5),
-                result: Ok(vec![REPORT_ID, 0xb8, 0x0d]),
+                result: Ok(vec![REPORT_ID, 0xb8, 0x0d, 0, 0]),
             }
         );
         assert_eq!(
             sensor.update(CentiCelsius::new(-1000)),
-            [REPORT_ID, 0x18, 0xfc]
+            [REPORT_ID, 0x18, 0xfc, 0xff, 0xff]
         );
     }
 

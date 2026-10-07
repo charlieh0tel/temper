@@ -106,11 +106,14 @@ From `drivers/iio/common/hid-sensors/hid-sensor-attributes.c`,
 - Friendly Name (0x200301) is read by no kernel code but
   hid-sensor-custom; it is not included.
 
-As built (`crates/tempered-bin/src/sensor.rs`): one physical
+As built (`crates/tempered-bin/src/sensor.rs`): one application
 collection, usage 0x200033, with report ID 1 for both a feature report
 (Reporting State and Power State as 1-based named arrays in logical
-collections, Report Interval u32, Change Sensitivity Absolute u16;
-9 bytes with the ID) and an input report (temperature i16; 3 bytes).
+collections, Report Interval u32 with Logical Maximum 2^31 - 1, since
+the item is signed; Change Sensitivity Absolute u16; 9 bytes with the
+ID) and an input report (temperature as 32 bits, though its values
+fit 16, because the driver's buffered path reads every sample as 32
+bits; 5 bytes).
 Reporting State lists only the No Events and All Events selectors the
 kernel defines.  No Sensor State or Event fields: the Linux drivers do
 not read them.  Writes to Reporting State and Power State are stored
@@ -353,6 +356,9 @@ go; a create cut short by shutdown is not counted and keeps the
 shutdown's status; SIGHUP is handled; hold ages use `CLOCK_BOOTTIME`;
 `WATCHDOG_USEC=0` disables the watchdog and the tick is at least
 10 ms.
+
+Descriptor: Application collection; Report Interval's maximum encoded
+as a positive value; 32-bit temperature field.
 
 Commits, in order: refactor (no behavior change); library API;
 daemon robustness; descriptor; packaging and release; kernel patches;
