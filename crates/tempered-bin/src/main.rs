@@ -1,41 +1,42 @@
-// Used by the daemon, which arrives in phase 4; tests use parts.
-#[allow(dead_code)] // [TODO] @ch: fix allow lint
+mod daemon;
+mod iio;
 mod label;
-// Used by the daemon, which arrives in phase 4; tests use parts.
-#[allow(dead_code)] // [TODO] @ch: fix allow lint
 mod listen;
 mod log;
-// Used by the daemon, which arrives in phase 4; tests use parts.
-#[allow(dead_code)] // [TODO] @ch: fix allow lint
 mod logger;
-// Used by the daemon, which arrives in phase 4; tests use parts.
-#[allow(dead_code)] // [TODO] @ch: fix allow lint
 mod notify;
-// Used by the daemon, which arrives in phase 4; tests use parts.
-#[allow(dead_code)] // [TODO] @ch: fix allow lint
+mod schedule;
 mod sensor;
-// Used by the daemon, which arrives in phase 4; tests use parts.
-#[allow(dead_code)] // [TODO] @ch: fix allow lint
+mod supervisor;
 mod uhid;
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::ensure;
+use clap::CommandFactory;
 use clap::Parser;
 use clap::Subcommand;
+use clap::error::ErrorKind;
 use tempered_hid::protocol::Stick;
 
+use crate::daemon::Config;
+use crate::label::Label;
 use crate::log::TimeFormat;
 
-/// Shortest `log` interval; the stick is slow to answer.
-const MIN_LOG_INTERVAL: Duration = Duration::from_secs(1);
+/// Shortest polling interval; the stick is slow to answer.
+const MIN_INTERVAL: Duration = Duration::from_secs(1);
+
+/// The hold must outlast this many intervals, so one missed reading
+/// never expires it.
+const MIN_HOLD_INTERVALS: u32 = 2;
 
 /// Read a PCsensor TEMPerGold USB thermometer and present it as a Linux
 /// IIO device.
 #[derive(Debug, Parser)]
-#[command(version)]
+#[command(name = "tempered", version)]
 struct Cli {
     /// hidraw node of the stick's data interface; found if omitted.
     #[arg(long, global = true)]
@@ -63,17 +64,73 @@ enum Action {
         #[arg(long, value_enum, default_value_t = TimeFormat::Rfc3339)]
         time: TimeFormat,
     },
+    /// Present the stick as an IIO device until stopped.  Runs in the
+    /// foreground, for systemd.
+    Daemon {
+        /// Name of the link to the IIO device under the run directory.
+        #[arg(long, env = "TEMPERED_LABEL", default_value = "temperature")]
+        label: Label,
+        /// Time between readings, at least 1s.
+        #[arg(long, env = "TEMPERED_INTERVAL", default_value = "10s", value_parser = parse_interval)]
+        interval: Duration,
+        /// How long to serve the last reading once the stick stops
+        /// answering; at least twice the interval.
+        #[arg(long, env = "TEMPERED_HOLD", default_value = "60s", value_parser = parse_duration)]
+        hold: Duration,
+        /// Where the label's link and lock live.
+        #[arg(long, hide = true, default_value = "/run/tempered")]
+        run_dir: PathBuf,
+    },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
-    let mut stick = match &cli.device {
+    match cli.action {
+        Action::Daemon {
+            label,
+            interval,
+            hold,
+            run_dir,
+        } => {
+            if hold < interval * MIN_HOLD_INTERVALS {
+                Cli::command()
+                    .error(
+                        ErrorKind::ValueValidation,
+                        format!(
+                            "--hold ({hold:?}) must be at least {MIN_HOLD_INTERVALS} \
+                             times --interval ({interval:?})"
+                        ),
+                    )
+                    .exit();
+            }
+            daemon::run(Config {
+                device: cli.device,
+                label,
+                interval,
+                hold,
+                run_dir,
+            })
+            .into()
+        }
+        action => match tool(cli.device, action) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Error: {error:#}");
+                ExitCode::FAILURE
+            }
+        },
+    }
+}
+
+/// The diagnostic commands.
+fn tool(device: Option<PathBuf>, action: Action) -> anyhow::Result<()> {
+    let mut stick = match &device {
         Some(device) => {
             Stick::open(device).with_context(|| format!("opening {}", device.display()))?
         }
         None => Stick::find()?,
     };
-    match cli.action {
+    match action {
         Action::Read => println!("{}", stick.temperature()?),
         Action::Info => {
             println!("device: {}", stick.transport().path().display());
@@ -101,16 +158,22 @@ fn main() -> anyhow::Result<()> {
             count,
             time,
         } => log::run(&mut stick, interval, count, time)?,
+        Action::Daemon { .. } => unreachable!("handled in main"),
     }
     Ok(())
 }
 
 /// Parses a duration such as `10s` or `1m` (jiff's friendly format).
+fn parse_duration(text: &str) -> anyhow::Result<Duration> {
+    Ok(Duration::try_from(text.parse::<jiff::SignedDuration>()?)?)
+}
+
+/// A polling interval: a duration of at least [`MIN_INTERVAL`].
 fn parse_interval(text: &str) -> anyhow::Result<Duration> {
-    let interval = Duration::try_from(text.parse::<jiff::SignedDuration>()?)?;
+    let interval = parse_duration(text)?;
     ensure!(
-        interval >= MIN_LOG_INTERVAL,
-        "interval must be at least {MIN_LOG_INTERVAL:?}"
+        interval >= MIN_INTERVAL,
+        "interval must be at least {MIN_INTERVAL:?}"
     );
     Ok(interval)
 }

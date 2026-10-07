@@ -12,9 +12,12 @@ authors = ["Christopher Hoover <ch@murgatroid.com>"]
 repository = "https://github.com/charlieh0tel/tempered-hid"
 
 # Stripped in the packaged build: lintian objects to unstripped
-# binaries.
+# binaries.  A panic aborts, so a dead daemon thread ends the process
+# instead of leaving it half alive; profiles never apply to library
+# users or to tests.
 [profile.release]
 strip = "symbols"
+panic = "abort"
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"

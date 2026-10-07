@@ -314,6 +314,10 @@ the apt repo, not crates.io.
    `/run/tempered` link, signals, watchdog.  Root-only tests (`make test-hw`): one with no stick that
    creates the device, waits for IIO, and checks raw, scale and that a
    read after idle returns at once; one with the stick.
+   Built: `tempered daemon` (`daemon.rs`, `supervisor.rs`), checked by
+   hand against the stick and kernel: the IIO device appears, the
+   link reads right, and stopping removes both.  Remaining: the
+   fake-stick root tests.
 5. udev rules (hotplug start, hidraw group, keyboard deauthorize),
    systemd unit, tmpfiles.d, system-sleep hook.
 6. Debian packaging, release and audit workflows, Makefile,

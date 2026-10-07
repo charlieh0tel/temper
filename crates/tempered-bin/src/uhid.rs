@@ -7,6 +7,11 @@
 //! must offer [`EVENT_SIZE`] bytes or the event is truncated and lost
 //! (`uhid_char_read()` in `drivers/hid/uhid.c`).
 
+use std::fs::File;
+use std::io;
+use std::io::Read;
+use std::io::Write;
+
 use rustix::io::Errno;
 
 /// `UHID_DATA_MAX`: largest report payload.
@@ -96,27 +101,10 @@ impl ReportType {
 }
 
 /// `struct uhid_start_req`'s `dev_flags`: which report kinds the
-/// device's descriptor numbers (`enum uhid_dev_flag`).
+/// device's descriptor numbers (`enum uhid_dev_flag`: bit 0 feature,
+/// bit 1 output, bit 2 input).  Only logged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DevFlags(u64);
-
-impl DevFlags {
-    const NUMBERED_FEATURE_REPORTS: u64 = 1 << 0;
-    const NUMBERED_OUTPUT_REPORTS: u64 = 1 << 1;
-    const NUMBERED_INPUT_REPORTS: u64 = 1 << 2;
-
-    pub(crate) fn numbered_feature_reports(self) -> bool {
-        self.0 & Self::NUMBERED_FEATURE_REPORTS != 0
-    }
-
-    pub(crate) fn numbered_output_reports(self) -> bool {
-        self.0 & Self::NUMBERED_OUTPUT_REPORTS != 0
-    }
-
-    pub(crate) fn numbered_input_reports(self) -> bool {
-        self.0 & Self::NUMBERED_INPUT_REPORTS != 0
-    }
-}
 
 /// The device to create: `struct uhid_create2_req`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -420,6 +408,44 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<FromKernel, DecodeError> {
     })
 }
 
+/// Reads one event, retrying `EINTR`.  The buffer is a full
+/// [`EVENT_SIZE`], since a short read truncates and consumes the event.
+pub(crate) fn read_event(mut uhid: &File) -> io::Result<FromKernel> {
+    let mut buffer = vec![0; EVENT_SIZE];
+    loop {
+        match uhid.read(&mut buffer) {
+            Ok(n) => {
+                return decode(&buffer[..n])
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error));
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Writes one event in a single `write()`, retrying `EINTR`: uhid takes
+/// the whole event or nothing, so `write_all`, which could split it into
+/// two events, is not used.  uhid's device lock is interruptible, so a
+/// signal can interrupt even a write that `SA_RESTART` would restart.
+pub(crate) fn write_event(mut uhid: &File, event: ToKernel<'_>) -> io::Result<()> {
+    let bytes =
+        encode(event).map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    loop {
+        match uhid.write(&bytes) {
+            Ok(n) if n == bytes.len() => return Ok(()),
+            Ok(n) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    format!("uhid took {n} of {} bytes", bytes.len()),
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,12 +632,12 @@ mod tests {
     #[test]
     fn decodes_start() {
         let bytes = from_kernel(2, &[&0b101_u64.to_ne_bytes()]);
-        let FromKernel::Start { flags } = decode(&bytes).unwrap() else {
-            panic!("not Start");
-        };
-        assert!(flags.numbered_feature_reports());
-        assert!(!flags.numbered_output_reports());
-        assert!(flags.numbered_input_reports());
+        assert_eq!(
+            decode(&bytes).unwrap(),
+            FromKernel::Start {
+                flags: DevFlags(0b101)
+            }
+        );
     }
 
     #[test]
@@ -700,8 +726,6 @@ mod tests {
 #[cfg(test)]
 mod kernel_tests {
     use std::fs::File;
-    use std::io::Read;
-    use std::io::Write;
     use std::time::Duration;
 
     use rustix::event::PollFd;
@@ -730,20 +754,18 @@ mod kernel_tests {
         0xc0, //             End Collection
     ];
 
-    fn next_event(uhid: &mut File) -> FromKernel {
+    fn next_event(uhid: &File) -> FromKernel {
         let timeout = Timespec::try_from(EVENT_TIMEOUT).unwrap();
-        let mut fds = [PollFd::new(&*uhid, PollFlags::IN)];
+        let mut fds = [PollFd::new(uhid, PollFlags::IN)];
         let ready = rustix::event::poll(&mut fds, Some(&timeout)).unwrap();
         assert_eq!(ready, 1, "no uhid event within {EVENT_TIMEOUT:?}");
-        let mut buffer = vec![0; EVENT_SIZE];
-        let n = uhid.read(&mut buffer).unwrap();
-        decode(&buffer[..n]).unwrap()
+        read_event(uhid).unwrap()
     }
 
     #[test]
     #[ignore = "needs root for /dev/uhid"]
     fn create_start_destroy_stop() {
-        let mut uhid = File::options().read(true).write(true).open(UHID).unwrap();
+        let uhid = File::options().read(true).write(true).open(UHID).unwrap();
         let create = Create2 {
             name: "tempered uhid test".to_owned(),
             phys: "tempered-test".to_owned(),
@@ -755,12 +777,10 @@ mod kernel_tests {
             country: 0,
             descriptor: VENDOR_DESCRIPTOR.to_vec(),
         };
-        let bytes = encode(ToKernel::Create2(&create)).unwrap();
-        assert_eq!(uhid.write(&bytes).unwrap(), bytes.len());
-        assert!(matches!(next_event(&mut uhid), FromKernel::Start { .. }));
+        write_event(&uhid, ToKernel::Create2(&create)).unwrap();
+        assert!(matches!(next_event(&uhid), FromKernel::Start { .. }));
 
-        let bytes = encode(ToKernel::Destroy).unwrap();
-        assert_eq!(uhid.write(&bytes).unwrap(), bytes.len());
-        assert_eq!(next_event(&mut uhid), FromKernel::Stop);
+        write_event(&uhid, ToKernel::Destroy).unwrap();
+        assert_eq!(next_event(&uhid), FromKernel::Stop);
     }
 }

@@ -232,18 +232,20 @@ impl Sensor {
 
     /// Report interval and sensitivity are always 0.
     fn feature_report(&self) -> Vec<u8> {
-        let mut report = vec![
+        let mut report = Vec::with_capacity(FEATURE_REPORT_LEN);
+        report.extend_from_slice(&[
             REPORT_ID,
             self.features.reporting_state,
             self.features.power_state,
-        ];
+        ]);
         report.extend_from_slice(&0_u32.to_le_bytes());
         report.extend_from_slice(&0_u16.to_le_bytes());
         report
     }
 
     fn input_report(&self) -> Vec<u8> {
-        let mut report = vec![REPORT_ID];
+        let mut report = Vec::with_capacity(INPUT_REPORT_LEN);
+        report.push(REPORT_ID);
         report.extend_from_slice(&self.temperature.get().to_le_bytes());
         report
     }
@@ -402,8 +404,6 @@ mod tests {
 mod kernel_tests {
     use std::fs;
     use std::fs::File;
-    use std::io::Read;
-    use std::io::Write;
     use std::path::Path;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -418,18 +418,13 @@ mod kernel_tests {
     use rustix::event::Timespec;
 
     use super::*;
+    use crate::iio;
     use crate::uhid::Bus;
     use crate::uhid::Create2;
-    use crate::uhid::EVENT_SIZE;
-    use crate::uhid::decode;
-    use crate::uhid::encode;
+    use crate::uhid::read_event;
+    use crate::uhid::write_event;
 
     const UHID: &str = "/dev/uhid";
-    const IIO_DEVICES: &str = "/sys/bus/iio/devices";
-
-    /// IIO device entries; the bus also lists `triggerN` entries, and
-    /// the sensor driver registers a trigger under the same parent.
-    const IIO_DEVICE_PREFIX: &str = "iio:device";
     const UNIQ: &str = "tempered-sensor-test";
     const TEMPERATURE: CentiCelsius = CentiCelsius::new(3512);
 
@@ -447,48 +442,24 @@ mod kernel_tests {
     const FAST_READ: Duration = Duration::from_millis(500);
 
     /// Answers the kernel's requests from a [`Sensor`] until `stop`.
-    fn serve(mut uhid: File, stop: &AtomicBool) {
+    fn serve(uhid: &File, stop: &AtomicBool) {
         let mut sensor = Sensor::new(TEMPERATURE);
         let timeout = Timespec::try_from(POLL_PERIOD).unwrap();
-        let mut buffer = vec![0; EVENT_SIZE];
         while !stop.load(Ordering::Relaxed) {
-            let mut fds = [PollFd::new(&uhid, PollFlags::IN)];
+            let mut fds = [PollFd::new(uhid, PollFlags::IN)];
             if rustix::event::poll(&mut fds, Some(&timeout)).unwrap() == 0 {
                 continue;
             }
-            let n = uhid.read(&mut buffer).unwrap();
-            if let Some(reply) = sensor.handle(&decode(&buffer[..n]).unwrap()) {
-                uhid.write_all(&encode(reply.event()).unwrap()).unwrap();
+            if let Some(reply) = sensor.handle(&read_event(uhid).unwrap()) {
+                write_event(uhid, reply.event()).unwrap();
             }
         }
-    }
-
-    /// Whether `uevent` belongs to the test's HID device.
-    fn is_test_hid(dir: &Path) -> bool {
-        fs::read_to_string(dir.join("uevent"))
-            .is_ok_and(|uevent| uevent.lines().any(|l| l == format!("HID_UNIQ={UNIQ}")))
-    }
-
-    /// The test's IIO device: one whose sysfs ancestors include it.
-    fn find_iio() -> Option<PathBuf> {
-        fs::read_dir(IIO_DEVICES).ok()?.find_map(|entry| {
-            let entry = entry.ok()?;
-            if !entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(IIO_DEVICE_PREFIX)
-            {
-                return None;
-            }
-            let path = fs::canonicalize(entry.path()).ok()?;
-            path.ancestors().any(is_test_hid).then_some(path)
-        })
     }
 
     fn wait_for_iio() -> PathBuf {
         let start = Instant::now();
         loop {
-            if let Some(path) = find_iio() {
+            if let Some(path) = iio::find(UNIQ) {
                 return path;
             }
             assert!(start.elapsed() < SETUP_TIMEOUT, "no IIO device appeared");
@@ -508,7 +479,7 @@ mod kernel_tests {
     #[test]
     #[ignore = "needs root for /dev/uhid"]
     fn iio_device_reads_temperature() {
-        let mut uhid = File::options().read(true).write(true).open(UHID).unwrap();
+        let uhid = Arc::new(File::options().read(true).write(true).open(UHID).unwrap());
         let create = Create2 {
             name: "tempered sensor test".to_owned(),
             phys: UNIQ.to_owned(),
@@ -520,13 +491,12 @@ mod kernel_tests {
             country: 0,
             descriptor: DESCRIPTOR.to_vec(),
         };
-        uhid.write_all(&encode(ToKernel::Create2(&create)).unwrap())
-            .unwrap();
+        write_event(&uhid, ToKernel::Create2(&create)).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let server = {
-            let uhid = uhid.try_clone().unwrap();
+            let uhid = Arc::clone(&uhid);
             let stop = Arc::clone(&stop);
-            thread::spawn(move || serve(uhid, &stop))
+            thread::spawn(move || serve(&uhid, &stop))
         };
 
         let iio = wait_for_iio();
@@ -545,8 +515,7 @@ mod kernel_tests {
             TEMPERATURE.get().to_string()
         );
 
-        // Destroy while still serving: removal may issue requests.
-        uhid.write_all(&encode(ToKernel::Destroy).unwrap()).unwrap();
+        write_event(&uhid, ToKernel::Destroy).unwrap();
         stop.store(true, Ordering::Relaxed);
         server.join().unwrap();
     }

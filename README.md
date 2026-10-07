@@ -5,7 +5,7 @@ Presents a PCsensor TEMPerGold USB thermometer as a Linux IIO device.
 `tempered daemon` reads the stick over hidraw and creates a virtual
 HID sensor through `/dev/uhid`; the kernel's HID sensor drivers turn
 it into an ordinary `iio:deviceN`.  Status: in development; the
-daemon is not done yet.
+systemd unit and Debian package are not done yet.
 
 ## Usage
 
@@ -13,6 +13,7 @@ daemon is not done yet.
 sudo tempered read    # temperature in degrees C
 sudo tempered info    # firmware, probes, calibration, manufacture date
 sudo tempered log     # JSON Lines: --interval, --count, --time rfc3339|unix
+sudo tempered daemon  # IIO device, linked as /run/tempered/temperature
 ```
 
 ## Layout

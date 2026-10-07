@@ -2,9 +2,7 @@
 
 use std::io;
 use std::io::Write;
-use std::thread;
 use std::time::Duration;
-use std::time::Instant;
 
 use clap::ValueEnum;
 use jiff::Timestamp;
@@ -13,6 +11,8 @@ use serde_json::json;
 use tempered_hid::protocol::CentiCelsius;
 use tempered_hid::protocol::Stick;
 use tempered_hid::protocol::Transport;
+
+use crate::schedule::Schedule;
 
 /// Centidegrees per degree, for `temperature_c`.
 const CENTI_PER_UNIT: f64 = 100.0;
@@ -38,7 +38,7 @@ pub(crate) fn run<T: Transport>(
     count: Option<u64>,
     time_format: TimeFormat,
 ) -> io::Result<()> {
-    let start = Instant::now();
+    let schedule = Schedule::new(interval);
     let mut stdout = io::stdout().lock();
     for _ in 0..count.unwrap_or(u64::MAX) {
         let now = Timestamp::now();
@@ -50,17 +50,9 @@ pub(crate) fn run<T: Transport>(
                 _ => Err(error),
             };
         }
-        let elapsed = start.elapsed();
-        let next = interval * slot_after(elapsed, interval);
-        thread::sleep(next.saturating_sub(elapsed));
+        schedule.sleep();
     }
     Ok(())
-}
-
-/// The first schedule slot strictly after `elapsed`.
-fn slot_after(elapsed: Duration, interval: Duration) -> u32 {
-    let slots = elapsed.as_nanos() / interval.as_nanos() + 1;
-    u32::try_from(slots).unwrap_or(u32::MAX)
 }
 
 /// One output line for a reading taken at `time`.
@@ -119,14 +111,5 @@ mod tests {
             line(time(), TimeFormat::Rfc3339, Err(&error)).to_string(),
             r#"{"time":"2026-10-06T18:40:12.345Z","error":"outer \"quoted\": inner"}"#
         );
-    }
-
-    #[test]
-    fn schedule_slots() {
-        let interval = Duration::from_secs(10);
-        assert_eq!(slot_after(Duration::ZERO, interval), 1);
-        assert_eq!(slot_after(Duration::from_millis(9_999), interval), 1);
-        assert_eq!(slot_after(Duration::from_secs(10), interval), 2);
-        assert_eq!(slot_after(Duration::from_secs(35), interval), 4);
     }
 }
