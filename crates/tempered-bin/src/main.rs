@@ -1,13 +1,21 @@
+// Used by the daemon, which arrives in phase 4; tests use parts.
+#[allow(dead_code)] // [TODO] @ch: fix allow lint
+mod label;
+// Used by the daemon, which arrives in phase 4; tests use parts.
+#[allow(dead_code)] // [TODO] @ch: fix allow lint
+mod listen;
 mod log;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the daemon, which arrives in phase 4")
-)]
+// Used by the daemon, which arrives in phase 4; tests use parts.
+#[allow(dead_code)] // [TODO] @ch: fix allow lint
+mod logger;
+// Used by the daemon, which arrives in phase 4; tests use parts.
+#[allow(dead_code)] // [TODO] @ch: fix allow lint
+mod notify;
+// Used by the daemon, which arrives in phase 4; tests use parts.
+#[allow(dead_code)] // [TODO] @ch: fix allow lint
 mod sensor;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the daemon, which arrives in phase 4")
-)]
+// Used by the daemon, which arrives in phase 4; tests use parts.
+#[allow(dead_code)] // [TODO] @ch: fix allow lint
 mod uhid;
 
 use std::path::PathBuf;
