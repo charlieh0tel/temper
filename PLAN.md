@@ -153,8 +153,8 @@ already running.  So one thread serves uhid events from the cache at
 all times; another polls the stick.  They share the cache.  Before
 each command, stale hidraw input is drained (the firmware reply spans
 two reports).  After a destroy, the old device's queued
-`UHID_STOP`/`UHID_CLOSE` arrive before the new `UHID_START`; the
-state machine allows for them.
+`UHID_STOP`/`UHID_CLOSE` arrive before the new `UHID_START`; they are
+only logged.  Threads, locking and error handling: `docs/daemon.md`.
 
 ### Stale data: hold, then destroy
 
@@ -167,8 +167,8 @@ reads as 0.  Readers therefore cannot see an error, only a value, so:
 - when the thermometer stops responding, the last good reading is
   held (zero-order hold) for a configurable age, default 60 s;
 - after that the link is removed and then the virtual device is
-  destroyed (`UHID_DESTROY`, sent by the serving thread after it has
-  answered its queue).  The `iio:deviceN` directory goes away, so
+  destroyed (`UHID_DESTROY`; the kernel fails pending requests itself,
+  so no thread needs to be answering).  The `iio:deviceN` directory goes away, so
   readers fail (`ENOENT`, or `ENODEV` on an open file), which
   smartclockd already logs as absent.  The next good reading
   recreates both; the IIO device number may change, the link does
@@ -180,9 +180,11 @@ reads as 0.  Readers therefore cannot see an error, only a value, so:
 - rejected: a sentinel value (smartclockd would log it as data), and
   removing only the link (direct `iio:deviceN` readers would keep
   seeing the held value).
-- a systemd watchdog (`WatchdogSec=`) covers the daemon hanging.  A
-  destroy can block over 5 s while the kernel drains in-flight reads,
-  so the watchdog is sized well above that.
+- a systemd watchdog (`WatchdogSec=60s`) covers the daemon hanging.
+  A destroy can block 5 s per concurrent reader, so it runs on its own
+  thread while the main thread keeps pinging; see `docs/daemon.md`.
+- the stick unplugged: the daemon cleans up and exits 0.  hidraw
+  reports it as hang-up on `poll` and `EIO` on `read`, not `ENODEV`.
 
 ### Stable name
 
@@ -197,25 +199,28 @@ So the daemon links its IIO device as `/run/tempered/<label>`; readers
 use `/run/tempered/<label>/in_temp_raw` and friends.  The label is set
 by `TEMPERED_LABEL` in `/etc/default/tempered`, default `temperature`,
 one value for all sticks: the stick has no serial number, and the
-port path is too fragile to key on.  Only one stick is expected; a
-second gets `-1` appended, silently; which stick gets the suffix
-depends on start order.  Each instance holds an `flock` on
-`/run/tempered/<label>.lock` to own a label (released on crash).  The
-owner replaces its link atomically (symlink to a temporary name, then
+port path is too fragile to key on.  Only one stick is expected, so
+there are no suffixes: each instance holds an `flock` on
+`/run/tempered/<label>.lock` (released on crash), and a second
+instance, such as one started by a replug while the old one is still
+stopping, waits for it.  The label must match
+`[a-z0-9][a-z0-9_-]{0,63}`.  The owner replaces its link atomically (symlink to a temporary name, then
 rename).  The link targets the fully resolved sysfs path, which
 contains the never-reused HID sequence number
 (`.../uhid/0006:3553:A001.NNNN/...`), so a dangling link is
 unambiguous.  The label is also the uhid device name (`HID_NAME`).
 
 The daemon finds its IIO device by setting a unique `uniq` in
-`UHID_CREATE2` and matching it under
-`/sys/devices/virtual/misc/uhid/*/uevent`.  Only `iio:device*`
+`UHID_CREATE2` and scanning `/sys/bus/iio/devices` for an entry with
+an ancestor whose `uevent` has that `HID_UNIQ`.  Only `iio:device*`
 entries count: the sensor driver also registers a trigger,
 `temperature-devN`, listed as `triggerN` under the same parent.
 
-`/run/tempered` is created by tmpfiles.d, owned by the `tempered`
-user, so it survives any one instance stopping; the unit's
-`ProtectSystem=strict` needs `ReadWritePaths=/run/tempered`.
+`/run/tempered` is created by tmpfiles.d, mode 0755 so readers can
+follow the link, owned by the `tempered` user, so it survives any one
+instance stopping; the unit's `ProtectSystem=strict` needs
+`ReadWritePaths=/run/tempered`, which fails the unit if the directory
+is missing, so postinst runs `systemd-tmpfiles --create` first.
 
 ### Privileges
 
@@ -226,18 +231,22 @@ so an unplug stops it.  It runs as the static system user `tempered`
 Not `DynamicUser=`: the udev rule below needs a group that exists
 before the service runs.
 
-- `/dev/uhid` stays root-only.  systemd's `OpenFile=/dev/uhid`
-  (systemd >= 253) opens it as root and passes the descriptor.
-  Adopting that inherited descriptor needs `OwnedFd::from_raw_fd`;
-  that one call is `unsafe`, allowed with
-  `#[expect(unsafe_code, reason = ...)]` (approved).
+- `/dev/uhid` stays root-only.  systemd's `OpenFile=/dev/uhid:uhid`
+  (systemd >= 253) opens it as root and passes the descriptor, named
+  `uhid` in `LISTEN_FDNAMES`.  Adopting that inherited descriptor
+  needs `OwnedFd::from_raw_fd`; that one call is `unsafe`, allowed
+  with `#[expect(unsafe_code, reason = ...)]` (approved).  The
+  `LISTEN_*` variables are not unset: `std::env::remove_var` is also
+  `unsafe` in edition 2024, and the daemon never execs.
 - `OpenFile=` does not expand `%I` in systemd 255, so the hidraw node
   cannot be passed that way; udev gives the stick's data interface
   `GROUP="tempered", MODE="0660"` instead.
 - No `PrivateDevices=`: its private `/dev` has no hidraw nodes.
-  Instead `DevicePolicy=closed` with `DeviceAllow=char-hidraw rw`.
-  `/dev/uhid` needs no `DeviceAllow=`, since PID 1 opens it before
-  the policy applies (to verify).
+  Instead `DevicePolicy=closed` with `DeviceAllow=char-hidraw rw` and
+  `DeviceAllow=/dev/uhid rw`: in systemd 255 `OpenFile=` is opened by
+  `systemd-executor`, likely already under the unit's device policy
+  (to verify on the real unit).  The second grants nothing extra,
+  since `/dev/uhid` is root-only.
 - udev resolves `GROUP=` names when it parses rules, so postinst
   creates the user before `udevadm control --reload` and
   `udevadm trigger`.  udev's `SYSTEMD_WANTS` fires only when a device
@@ -245,8 +254,7 @@ before the service runs.
   stick already plugged in.
 - `RestrictAddressFamilies=AF_UNIX` (for `sd_notify`).
 - The daemon also runs without systemd, for tests and manual use: if
-  `LISTEN_FDS` is unset or `LISTEN_PID` is not its own, it opens
-  `/dev/uhid` itself (needs root).
+  `LISTEN_PID` is unset, it opens `/dev/uhid` itself (needs root).
 - The uhid descriptor is a keystroke-injection capability: the same
   descriptor can destroy the sensor and create a keyboard, with no
   credential check.  Mitigated with `SystemCallFilter=`,
@@ -302,8 +310,8 @@ the apt repo, not crates.io.
    a root-only test against the real drivers: the IIO device appears,
    `in_temp_raw` and `in_temp_scale` are right, hysteresis reads, and
    a read after 4 s idle returns at once.  **Done.**
-4. Daemon: threads, stale policy, `/run/tempered` link, signals,
-   watchdog.  Root-only tests (`make test-hw`): one with no stick that
+4. Daemon, per `docs/daemon.md` (reviewed): threads, stale policy,
+   `/run/tempered` link, signals, watchdog.  Root-only tests (`make test-hw`): one with no stick that
    creates the device, waits for IIO, and checks raw, scale and that a
    read after idle returns at once; one with the stick.
 5. udev rules (hotplug start, hidraw group, keyboard deauthorize),

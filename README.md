@@ -51,6 +51,7 @@ The stick is found automatically; `--device /dev/hidrawN` picks one.
 
 - `PLAN.md`: architecture, decisions and open work.
 - `docs/protocol.md`: the TEMPerGold commands and reply layouts.
+- `docs/daemon.md`: the design of `tempered daemon`.
 
 ## License
 

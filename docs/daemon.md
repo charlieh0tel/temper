@@ -1,0 +1,259 @@
+# `tempered daemon` design
+
+Phase 4 of `PLAN.md`.  The daemon reads the stick and presents it as
+an IIO device through `/dev/uhid`, using the codec in
+`crates/tempered-bin/src/uhid.rs` and the sensor in `sensor.rs`.  This
+is the design; `PLAN.md` holds the decisions it builds on.  Kernel
+references are to `drivers/hid/uhid.c`, `drivers/hid/hidraw.c` and
+`drivers/hid/hid-sensor-hub.c`.
+
+## Command line
+
+```
+tempered daemon [--device /dev/hidrawN] [--label NAME]
+                [--interval 10s] [--hold 60s]
+```
+
+Each option also reads an environment variable (clap's `env`
+feature), so the unit's `EnvironmentFile=/etc/default/tempered`
+configures it:
+
+- `TEMPERED_LABEL`, default `temperature`: matches
+  `[a-z0-9][a-z0-9_-]{0,63}`, since it becomes a file name in
+  `/run/tempered` and the uhid device name.
+- `TEMPERED_INTERVAL`, default `10s`, at least `1s`.
+- `TEMPERED_HOLD`, default `60s`, at least twice the interval, so one
+  missed reading never expires the hold.
+
+`--device` comes from the unit instance (`/dev/%I`); without it the
+only attached stick is used.  Every configuration error, including
+the cross-field hold check, is reported as a clap error and exits 2,
+which the unit lists in `RestartPreventExitStatus=`.
+
+It runs in the foreground and never forks.
+
+## Exit status
+
+| Status | Meaning |
+|---|---|
+| 0 | Stopped by `SIGTERM`/`SIGINT`, or the stick was unplugged |
+| 1 | Runtime failure, e.g. `/run/tempered` unusable; restarted |
+| 2 | Configuration error; not restarted |
+| 3 | The IIO device never appeared, three times running (e.g. a missing kernel module); not restarted |
+
+Unplugging exits 0: `BindsTo=` stops the unit anyway, and a failure
+status would only make `Restart=on-failure` churn.  Status 3 is not
+restarted (`RestartPreventExitStatus=2 3`): each attempt takes 30 s
+or more, so systemd's start limit would never trip and the daemon
+would cycle forever.  A panic aborts the process in release builds
+(`panic = "abort"`, `SIGABRT`, restarted); in dev builds it unwinds
+and `main` exits 1.
+
+## Logging
+
+To stderr, one line per state transition, not per reading: started,
+reading resumed, readings failing (once, with the error), device
+created, link created, held value expired and device destroyed,
+stopping.  A long outage repeats its failure line hourly.  Each line
+starts with a `sd-daemon(3)` priority prefix (`<3>` error, `<4>`
+warning, `<6>` info, `<7>` debug), which journald honors.  When stderr
+is not journald's (`JOURNAL_STREAM` unset or not matching stderr's
+device and inode, `systemd.exec(5)`), the prefix is dropped and a
+timestamp added instead.  Errors are formatted on one line (`{:#}`), since journald applies a
+prefix to one line only.  Write errors on stderr are ignored.
+
+## Startup
+
+1. Parse options.
+2. Open the stick's hidraw node; query the firmware to confirm it is
+   a TEMPerGold.
+3. Get `/dev/uhid`.  If `LISTEN_PID` is this process, the fd named
+   `uhid` in `LISTEN_FDNAMES` (the unit says `OpenFile=/dev/uhid:uhid`)
+   is fd `3 + its position`, checked against `LISTEN_FDS`.  It is
+   adopted with `OwnedFd::from_raw_fd` (the one `unsafe`, approved),
+   given `FD_CLOEXEC` with `rustix::io::fcntl_setfd` (systemd passes it
+   without), and checked with `fstat` to be a character device with
+   rdev 10:239 (`UHID_MINOR`).  If `LISTEN_PID` matches but no `uhid`
+   fd is named, that is a configuration error.  If `LISTEN_PID` is
+   absent, `/dev/uhid` is opened directly (needs root; tests and
+   manual runs).  The `LISTEN_*` variables are left set: unsetting
+   them is `unsafe` in edition 2024 and pointless, since the daemon
+   never execs.
+4. Take the label's lock (below), waiting if another instance holds
+   it.  While waiting, it sends `EXTEND_TIMEOUT_USEC=` each tick, since
+   the wait counts against `TimeoutStartSec=` and the watchdog is not
+   active before `READY=1`.
+5. Start the threads and send `READY=1`.
+
+The virtual device is not created yet: it exists only while there is
+a reading to serve.  Being up with no device is normal, so `READY=1`
+does not wait for the first reading.
+
+## Threads and state
+
+Shared: `Mutex<Option<Sensor>>`, `None` while no virtual device
+exists, and the uhid `File`, cloned per thread with `try_clone` (one
+open instance; never reopened).  Each event is one `write()`, which
+the kernel takes whole under its device lock and answers with the
+full count.
+
+Lock rule: build the bytes under the sensor mutex, release it, then
+write.  The mutex is never held across a uhid write or any wait,
+because the driver probe, run from a kernel worker, needs the uhid
+thread to take the mutex and answer.  Order: the sensor becomes
+`Some` before `CREATE2` is written, and `None` only after `DESTROY`
+returns.
+
+- **uhid thread.**  Blocks reading full `EVENT_SIZE` events (`EINTR`
+  retried) and decodes them.  A request is answered at once from the
+  sensor.  With no sensor it is not answered: a destroy has already
+  failed every pending request in the kernel.  Write errors on
+  replies (`EINVAL` once the device is not running, a stale request
+  id dropped by the kernel) are logged at debug level, never fatal.
+  Stale `GET_REPORT`s can survive a destroy in the kernel's queue;
+  their replies fail with `EINVAL`, or after a new `CREATE2` are
+  accepted and dropped by request id, which is per fd and never
+  reused.  Lifecycle events (`START`, `STOP`,
+  `OPEN`, `CLOSE`), including the old device's `STOP` and `CLOSE`
+  after a destroy, are logged at debug level.
+- **poll thread.**  Queries the stick on a fixed schedule from t = 0,
+  shared with `tempered log` (`slot_after`), stamps a shared "last
+  progress" time, and sends each result to the main thread.  A query
+  normally takes under 1 s; a failing one can take over 5 s (a hidraw
+  write waits out the USB control timeout).
+- **destroy thread.**  Writes `DESTROY` when the main thread asks and
+  reports back.  A destroy can block for a long time (below); main
+  keeps pinging the watchdog meanwhile, since killing the daemon could
+  not interrupt the kernel anyway.
+- **signal thread.**  `signal_hook::iterator::Signals` for `SIGTERM`
+  and `SIGINT`; sends a shutdown message to the main thread.
+- **main thread.**  Owns the lifecycle.  Waits on its channel with a
+  timeout of one watchdog tick, pings the watchdog, and runs the
+  supervisor.
+
+Every `poll()`, `read()` and `write()` retries `EINTR`.  uhid's write
+takes an interruptible lock (`uhid_char_write()`), so a signal can
+interrupt it even under `SA_RESTART`; retrying a reply, `INPUT2` or
+`DESTROY` is idempotent.  `panic = "abort"` in the workspace's release
+profile, so a dead thread ends the process instead of leaving it half
+alive; profiles apply only at the workspace root and never to tests,
+so library users are unaffected.
+
+Threads treat a failed channel send as the signal to quit quietly and
+never unwrap channel operations: once `main` returns, its receiver is
+gone, and a panic there would abort a clean exit.
+
+## Stick failure and unplug
+
+After an unplug, hidraw's `poll` reports `POLLHUP`/`POLLERR` (set only
+when the device is gone) and `read` returns `EIO`; `ENODEV` comes only
+from write and ioctl (`hidraw.c`).  The public `Transport` trait
+returns `io::Result`, so it is not changed: `Hidraw::receive` reports
+hang-up as an `ENODEV` `io::Error`, and the library's `protocol::Error`
+gains a `Gone` variant ("the device was removed") that the conversion
+from `io::Error` produces for `ENODEV`, covering the write path too.
+
+## Supervisor
+
+A pure state machine, unit-tested without devices: inputs are a
+reading, a failure (or gone) with its time; outputs are actions.
+
+- **Absent.**  A good reading: set the sensor, write `CREATE2`, wait
+  up to 10 s for the IIO device (pinging the watchdog and checking for
+  shutdown every 100 ms), create the link; go to Present.  If the
+  `CREATE2` write fails, or the IIO device does not appear: log,
+  `DESTROY` if created, clear the sensor, stay Absent.  Three such
+  failures in a row: exit 3.
+- **Present.**  A good reading: update the sensor, write `INPUT2`
+  (so buffered mode and triggers get data), record the time.  If
+  `INPUT2` fails with `EINVAL` (only possible if the kernel stopped
+  the device; kept as a defensive branch), go to Absent as below.  A failure: if the last good reading is older
+  than the hold age, remove the link, write `DESTROY`, clear the
+  sensor; go to Absent.
+- **Gone** from either state: remove the link, `DESTROY` if Present,
+  exit 0.
+
+`CREATE2` fields: name = the label, phys = `tempered`, uniq =
+`tempered-<pid>-<n>` (unique per creation, so an IIO device from an
+earlier creation is never mistaken for the new one), bus
+`BUS_VIRTUAL`, VID:PID 3553:a001, version and country 0.
+
+## The link
+
+After `CREATE2`, the main thread polls `/sys/bus/iio/devices` every
+100 ms for an `iio:device*` entry (not `trigger*`: the driver also
+registers a trigger under the same parent) whose resolved path has an
+ancestor with `HID_UNIQ=<uniq>` in its `uevent`.  This matching is
+already tested against the kernel (`sensor.rs`).
+
+The label is owned through `/run/tempered/<label>.lock`, taken with an
+exclusive `flock` at startup and held for the process's life, so a
+crash releases it.  No suffixes: one stick is expected, and on a
+replug the new instance may start while the old one still holds the
+lock through its destroy, so the new one waits for the lock (logging
+once, extending the start timeout) rather than taking another name.  On
+taking the lock, a leftover `/run/tempered/<label>` is removed: a free
+lock means no live owner.  Lock files are never removed.
+
+The link `/run/tempered/<label>` is replaced atomically: remove any
+leftover `/run/tempered/.<label>.tmp`, symlink it to the resolved
+sysfs path (which contains the never-reused HID sequence number),
+rename it over.  The link is removed before every `DESTROY` and on
+exit.  If writing the link fails while Present, that is logged and
+retried with each reading.
+
+`/run/tempered` itself comes from tmpfiles.d, mode 0755, owned by
+`tempered`, so readers such as smartclockd can follow the link.
+
+## Shutdown
+
+On the shutdown message the main thread sends `STOPPING=1`, removes
+the link, has `DESTROY` written if Present and waits for it, and
+returns from `main` without joining the other threads: process exit ends them, wherever
+they are blocked.  `DESTROY` needs no help from the uhid thread: the
+kernel fails pending requests itself.
+
+## Watchdog and notification
+
+Messages go to `NOTIFY_SOCKET` with an unbound `UnixDatagram`: a path,
+or an abstract address for a leading `@`
+(`SocketAddrExt::from_abstract_name`); `vsock:` and other forms are
+ignored, and nothing is sent when it is unset.  Sent: `READY=1`,
+`WATCHDOG=1`, `STOPPING=1`, and `STATUS=` with the state.
+
+The watchdog is enabled when `WATCHDOG_USEC` is set and `WATCHDOG_PID`
+is unset or this process, as `sd_watchdog_enabled(3)` does; the tick
+is a quarter of `WATCHDOG_USEC`, else 1 s.  `WATCHDOG=1` is sent each
+main-loop iteration and inside every wait, but only while the poll
+thread's "last progress" stamp is within interval + 10 s, so a hung
+stick query stops the pings.  The unit uses `WatchdogSec=60s`.
+
+A `DESTROY` can block for 5 s per concurrent reader: once uhid stops
+answering, each in-flight IIO read still waits out the sensor hub's
+5 s completion timeout (`sensor_hub_input_attr_get_raw_value()`),
+serialized, and IIO attributes are world-readable.  That is why
+`DESTROY` runs on its own thread while main keeps pinging.  Shutdown
+is bounded by `TimeoutStopSec=` in the same way; a kill cannot take
+effect until the kernel returns.
+
+## Tests
+
+- Supervisor: unit tests over sequences of readings, failures, gone
+  and the clock (hold expiry, recovery, `INPUT2` failure, three IIO
+  timeouts).
+- Label validation, lock, link replacement and leftover cleanup: unit
+  tests in a temporary directory.
+- Notification and watchdog enablement: unit tests with a
+  `UnixDatagram` pair and set environments.
+- fd adoption: unit tests of the `LISTEN_*` parsing.
+- Root only (`make test-hw` later): a fake stick made from a second
+  uhid device (`BUS_USB`, phys ending `/input1`, VID:PID 3553:a001)
+  that answers hidraw writes (`UHID_OUTPUT`) with `INPUT2`, so the
+  real binary runs as a subprocess with `--device /dev/hidrawN`:
+  - the link appears and `in_temp_raw` follows the fake's readings;
+  - a failing fake past the hold age removes the link and the IIO
+    device, and recovery brings both back;
+  - destroying the fake (unplug) makes the daemon clean up and exit 0;
+  - `SIGTERM` cleans up and exits 0; `kill -9` leaves no IIO device.
+- On the real unit (phase 5): `OpenFile=` with `DevicePolicy=closed`,
+  with and without `DeviceAllow=/dev/uhid rw`; the replug race.
