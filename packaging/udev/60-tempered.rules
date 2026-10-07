@@ -2,10 +2,16 @@
 
 # The data interface (USB interface 1): readable by the tempered
 # group, and starts tempered@hidrawN, which BindsTo= the device so an
-# unplug stops it.  Matching the USB parent keeps out the virtual
+# unplug stops it.  usb_id supplies the IDs and interface number from
+# the USB ancestors; ATTRS{} keys cannot, since all of a rule's parent
+# keys must match one ancestor, and the interface number and the IDs
+# live on different ones.  Requiring a USB parent keeps out the virtual
 # sensor tempered creates, which has the same IDs on BUS_VIRTUAL.
-ACTION!="remove", SUBSYSTEM=="hidraw", ATTRS{bInterfaceNumber}=="01", \
-  ATTRS{idVendor}=="3553", ATTRS{idProduct}=="a001", \
+ACTION!="remove", SUBSYSTEM=="hidraw", SUBSYSTEMS=="usb", \
+  IMPORT{builtin}="usb_id"
+ACTION!="remove", SUBSYSTEM=="hidraw", ENV{ID_BUS}=="usb", \
+  ENV{ID_VENDOR_ID}=="3553", ENV{ID_MODEL_ID}=="a001", \
+  ENV{ID_USB_INTERFACE_NUM}=="01", \
   GROUP="tempered", MODE="0660", \
   TAG+="systemd", ENV{SYSTEMD_WANTS}+="tempered@%k.service"
 

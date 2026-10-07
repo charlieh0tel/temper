@@ -328,15 +328,20 @@ the apt repo, not crates.io.  Builds are stamped from `git describe`
    read after idle returns at once; one with the stick.
    Built: `tempered daemon` (`daemon.rs`, `supervisor.rs`), checked by
    hand against the stick and kernel: the IIO device appears, the
-   link reads right, and stopping removes both.  Remaining: the
-   fake-stick root tests.
+   link reads right, and stopping removes both.  Root tests
+   (`make test-hw`) pass on 7.0.0-38, serialized: hold expiry and
+   recovery, SIGTERM, unplug and `kill -9` with a fake stick, plus the
+   real stick.  **Done.**
 5. udev rules (hotplug start, hidraw group, keyboard deauthorize),
    systemd unit, tmpfiles.d, system-sleep hook, in `packaging/`;
    `docs/running.md`.  Written and statically checked (`udevadm
-   verify`, `systemd-analyze verify`, `shellcheck`).  Remaining, after
-   a reboot: install by hand and check `OpenFile=` with
-   `DevicePolicy=closed`, the keyboard deauthorize, hotplug start and
-   stop, and the suspend hook.
+   verify`, `systemd-analyze verify`, `shellcheck`).  Installed from
+   the .deb on 7.0.0-38: the unit starts from udev and serves,
+   `OpenFile=` works under `DevicePolicy=closed`, and the keyboard is
+   deauthorized.  The first install found the hidraw rule never
+   matched (all `ATTRS{}` keys must match one ancestor); it now uses
+   `usb_id`.  Replug works: `BindsTo=` stops the unit cleanly and
+   udev starts it again.  Remaining: the suspend hook.
 6. Debian packaging (`[package.metadata.deb]` in `tempered-bin`,
    `packaging/debian/`), release and audit workflows, Makefile
    (`make ci`, `test-hw` under sudo, `deb`, `release`),
