@@ -1,0 +1,24 @@
+[package]
+name = "tempered"
+version = "0.1.0"
+edition = "2024"
+authors = ["Christopher Hoover <ch@murgatroid.com>"]
+license = "GPL-3.0-or-later"
+description = "Present a PCsensor TEMPerGold USB thermometer as a Linux IIO device via uhid"
+repository = "https://github.com/charlieh0tel/tempered"
+publish = false
+
+# Stripped in the packaged build: lintian objects to unstripped
+# binaries.
+[profile.release]
+strip = "symbols"
+
+[lints.rust]
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unsafe_code = "deny"
+
+[lints.clippy]
+doc_markdown = "warn"
+enum_glob_use = "deny"
+todo = "warn"

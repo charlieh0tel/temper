@@ -1,0 +1,6 @@
+/target
+*~
+
+# Local run artifacts: captured device transcripts.
+# Golden fixtures live in tests/fixtures/ and are tracked.
+/captures

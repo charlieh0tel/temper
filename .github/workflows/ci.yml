@@ -1,0 +1,20 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    # The shared definition, so this repo's CI matches the others.
+    #
+    #   fmt-toolchain  empty, not nightly: rust-toolchain.toml pins the
+    #                  compiler and the fmt job resolves the same way.
+    #   audit          off here; audit.yml will run it on a schedule.
+    #   check-args     --all-targets, or clippy never sees the tests.
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-ci.yml@v1
+    with:
+      fmt-toolchain: ""
+      audit: false
+      check-args: "--all-targets"
