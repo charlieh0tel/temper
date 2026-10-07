@@ -20,6 +20,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use rustix::io::Errno;
+use signal_hook::consts::SIGHUP;
 use signal_hook::consts::SIGINT;
 use signal_hook::consts::SIGTERM;
 use signal_hook::iterator::Signals;
@@ -28,6 +29,7 @@ use tempered_hid::hidraw::PRODUCT_ID;
 use tempered_hid::hidraw::VENDOR_ID;
 use tempered_hid::protocol;
 use tempered_hid::protocol::CentiCelsius;
+use tempered_hid::protocol::Firmware;
 use tempered_hid::protocol::Stick;
 
 use crate::VERSION;
@@ -44,6 +46,7 @@ use crate::schedule::Schedule;
 use crate::sensor::DESCRIPTOR;
 use crate::sensor::Sensor;
 use crate::supervisor::Action;
+use crate::supervisor::BootTime;
 use crate::supervisor::FailureLog;
 use crate::supervisor::Supervisor;
 use crate::uhid;
@@ -54,6 +57,18 @@ use crate::uhid::ToKernel;
 
 /// `HID_PHYS` of the virtual device.
 const PHYS: &str = "tempered";
+
+/// Firmware queries at startup before giving up: a stick can be slow to
+/// answer right after it is plugged in.
+const FIRMWARE_ATTEMPTS: u32 = 5;
+
+/// The pause between those attempts.
+const FIRMWARE_RETRY: Duration = Duration::from_secs(1);
+
+/// How long to wait for a HID temperature sensor left by an earlier
+/// instance of this daemon to go away: one that crashed releases its
+/// label lock before the kernel finishes destroying its device.
+const LEFTOVER_WAIT: Duration = Duration::from_secs(10);
 
 /// How long the kernel may take to create the IIO device.
 const IIO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -194,7 +209,7 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         Some(path) => Stick::open(path).map_err(failure)?,
         None => Stick::find().map_err(failure)?,
     };
-    let firmware = stick.firmware().map_err(failure)?;
+    let firmware = query_firmware(&mut stick, &notifier)?;
     let uhid = Arc::new(listen::uhid(var).map_err(|error| match error {
         ListenError::Io(_) => failure(error),
         _ => (Exit::Config, error.into()),
@@ -248,6 +263,31 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
     })
 }
 
+/// Queries the firmware, retrying while the stick may still be settling
+/// after it was plugged in.  A stick that answers but is not supported
+/// is not retried, and its exit status keeps systemd from restarting.
+fn query_firmware(stick: &mut Stick<Hidraw>, notifier: &Notifier) -> Result<Firmware, StartError> {
+    let mut attempt = 1;
+    loop {
+        match stick.firmware() {
+            Ok(firmware) => return Ok(firmware),
+            Err(
+                error @ (protocol::Error::UnsupportedFirmware { .. }
+                | protocol::Error::FirmwareNotAscii { .. }),
+            ) => return Err((Exit::CannotPresent, error.into())),
+            Err(protocol::Error::Gone) => {
+                return Err((Exit::Clean, anyhow::anyhow!("stick removed")));
+            }
+            Err(error) if attempt >= FIRMWARE_ATTEMPTS => return Err(failure(error)),
+            Err(_) => {
+                attempt += 1;
+                let _ = notifier.extend_timeout(LOCK_WAIT_EXTENSION);
+                thread::sleep(FIRMWARE_RETRY);
+            }
+        }
+    }
+}
+
 /// Takes the label's lock, waiting while another instance holds it.
 fn acquire(
     dir: &Path,
@@ -272,7 +312,9 @@ fn acquire(
 }
 
 fn spawn_signals(sender: Sender<Message>) -> io::Result<()> {
-    let mut signals = Signals::new([SIGTERM, SIGINT])?;
+    // SIGHUP too: systemd counts it as a clean exit, and a terminal
+    // hangup would otherwise skip the cleanup.
+    let mut signals = Signals::new([SIGTERM, SIGINT, SIGHUP])?;
     thread::spawn(move || {
         for _ in signals.forever() {
             if sender.send(Message::Shutdown).is_err() {
@@ -419,32 +461,53 @@ impl Daemon {
         if self.failures.success() {
             self.logger.info(format_args!("readings resumed"));
         }
-        match self.supervisor.on_reading(temperature, Instant::now()) {
+        match self.supervisor.on_reading(temperature, BootTime::now()) {
             Action::Create(temperature) => {
-                if let Some(other) = iio::temperature_sensor() {
+                if let Some(other) = self.other_temperature_sensor() {
                     self.logger.error(format_args!(
                         "another HID temperature sensor exists ({}); the kernel's \
                          hid-sensor-temperature cannot handle two, so not creating one",
                         other.display()
                     ));
-                    self.stopping = Some(Exit::CannotPresent);
+                    self.stop_with(Exit::CannotPresent);
                     return;
                 }
                 let created = self.create(temperature);
-                if self.supervisor.created(created) {
+                // A create cut short by shutdown is not a failure of the
+                // kernel's.
+                if self.stopping.is_none() && self.supervisor.created(created) {
                     self.logger.error(format_args!(
                         "the IIO device never appeared; are hid_sensor_hub and \
                          hid_sensor_temperature available?"
                     ));
-                    self.stopping = Some(Exit::CannotPresent);
+                    self.stop_with(Exit::CannotPresent);
                 }
             }
             Action::Update(temperature) => self.update(temperature),
         }
     }
 
+    /// Another HID temperature sensor, once any left by a crashed
+    /// instance of this daemon has had time to go away.
+    fn other_temperature_sensor(&mut self) -> Option<PathBuf> {
+        let deadline = Instant::now() + LEFTOVER_WAIT;
+        loop {
+            let other = iio::temperature_sensor()?;
+            if !iio::sensor_has_phys(&other, PHYS) || Instant::now() >= deadline {
+                return Some(other);
+            }
+            self.ping();
+            thread::sleep(IIO_POLL);
+        }
+    }
+
+    /// Stops with `exit`, unless a stop is already under way.
+    fn stop_with(&mut self, exit: Exit) {
+        self.stopping = self.stopping.or(Some(exit));
+    }
+
     fn on_failure(&mut self, error: protocol::Error) {
-        let now = Instant::now();
+        let now = BootTime::now();
         if self.failures.failure(now) {
             self.logger.warning(format_args!(
                 "stick not answering: {:#}",

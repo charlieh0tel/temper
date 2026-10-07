@@ -42,6 +42,18 @@ pub(crate) fn find(uniq: &str) -> Option<PathBuf> {
     })
 }
 
+/// Whether the HID temperature sensor at `platform` belongs to a uhid
+/// device with `HID_PHYS=<phys>`: its parent's `uevent` says so.
+pub(crate) fn sensor_has_phys(platform: &Path, phys: &str) -> bool {
+    let line = format!("HID_PHYS={phys}");
+    fs::canonicalize(platform).is_ok_and(|path| {
+        path.parent().is_some_and(|hid| {
+            fs::read_to_string(hid.join("uevent"))
+                .is_ok_and(|uevent| uevent.lines().any(|l| l == line))
+        })
+    })
+}
+
 /// A HID temperature sensor's platform device, if any exists.
 ///
 /// `hid-sensor-temperature` keeps one static callback struct for all

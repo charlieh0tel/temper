@@ -36,10 +36,10 @@ It runs in the foreground and never forks.
 
 | Status | Meaning |
 |---|---|
-| 0 | Stopped by `SIGTERM`/`SIGINT`, or the stick was unplugged |
+| 0 | Stopped by `SIGTERM`, `SIGINT` or `SIGHUP`, or the stick was unplugged |
 | 1 | Runtime failure, e.g. `/run/tempered` unusable; restarted |
 | 2 | Configuration error; not restarted |
-| 3 | The device cannot be presented: another HID temperature sensor exists, or the IIO device never appeared three times running (e.g. a missing kernel module); not restarted |
+| 3 | The device cannot be presented: the stick's firmware is not supported (e.g. a TEMPer2 with the same USB ID), another HID temperature sensor exists, or the IIO device never appeared three times running (e.g. a missing kernel module); not restarted |
 
 Unplugging exits 0: `BindsTo=` stops the unit anyway, and a failure
 status would only make `Restart=on-failure` churn.  Status 3 is not
@@ -66,7 +66,9 @@ prefix to one line only.  Write errors on stderr are ignored.
 
 1. Parse options.
 2. Open the stick's hidraw node; query the firmware to confirm it is
-   a TEMPerGold.
+   a TEMPerGold, up to 5 times a second apart while extending the
+   start timeout, since a stick can be slow right after plug-in.  A
+   stick that answers with other firmware exits 3 at once.
 3. Get `/dev/uhid`.  If `LISTEN_PID` is this process, the fd named
    `uhid` in `LISTEN_FDNAMES` (the unit says `OpenFile=/dev/uhid:uhid`)
    is fd `3 + its position`, checked against `LISTEN_FDS`.  It is
@@ -125,7 +127,7 @@ returns.
   reports back.  A destroy can block for a long time (below); main
   keeps pinging the watchdog meanwhile, since killing the daemon could
   not interrupt the kernel anyway.
-- **signal thread.**  `signal_hook::iterator::Signals` for `SIGTERM`
+- **signal thread.**  `signal_hook::iterator::Signals` for `SIGTERM`, `SIGHUP`
   and `SIGINT`; sends a shutdown message to the main thread.
 - **main thread.**  Owns the lifecycle.  Waits on its channel with a
   timeout of one watchdog tick, pings the watchdog, and runs the
@@ -167,7 +169,15 @@ Found by running the root tests concurrently.
 So the daemon's sensor must be the only one on the machine:
 
 - Before every create, the daemon looks for a `HID-SENSOR-200033.*`
-  platform device; if one exists, it logs why and exits 3.
+  platform device; if one exists, it logs why and exits 3.  One left
+  by a crashed instance of this daemon (its uhid parent has
+  `HID_PHYS=tempered`) gets up to 10 s to go away first: a crashed
+  process releases its label lock before the kernel finishes
+  destroying its device.
+- It also only checks before creating.  Anything that creates a HID
+  temperature sensor later (another program, a test run beside the
+  service) can still oops the kernel and kill the daemon; that
+  happened once, 2026-10-07.
 - On a replug, the label lock keeps the new instance waiting until the
   old one has exited, after its destroy, so two never overlap.
 - The root tests that create a temperature sensor take a process-wide
@@ -186,13 +196,16 @@ reading, a failure (or gone) with its time; outputs are actions.
   shutdown every 100 ms), create the link; go to Present.  If the
   `CREATE2` write fails, or the IIO device does not appear: log,
   `DESTROY` if created, clear the sensor, stay Absent.  Three such
-  failures in a row: exit 3.
+  failures in a row: exit 3.  A create cut short by shutdown does not
+  count, and never replaces the shutdown's exit status.
 - **Present.**  A good reading: update the sensor, write `INPUT2`
   (so buffered mode and triggers get data), record the time.  If
   `INPUT2` fails with `EINVAL` (only possible if the kernel stopped
-  the device; kept as a defensive branch), go to Absent as below.  A failure: if the last good reading is older
-  than the hold age, remove the link, write `DESTROY`, clear the
-  sensor; go to Absent.
+  the device; kept as a defensive branch), go to Absent as below.  A
+  failure: if the last good reading is older than the hold age, remove
+  the link, write `DESTROY`, clear the sensor; go to Absent.  Ages are
+  measured on `CLOCK_BOOTTIME`, so time suspended counts: a reading
+  from before a suspend is not served as fresh after it.
 - **Gone** from either state: remove the link, `DESTROY` if Present,
   exit 0.
 
@@ -209,9 +222,11 @@ registers a trigger under the same parent) whose resolved path has an
 ancestor with `HID_UNIQ=<uniq>` in its `uevent`.  This matching is
 already tested against the kernel (`sensor.rs`).
 
-The label is owned through `/run/tempered/<label>.lock`, taken with an
-exclusive `flock` at startup and held for the process's life, so a
-crash releases it.  No suffixes: one stick is expected, and on a
+The label is owned through `/run/tempered/<label>.lock`, mode 0600,
+taken with an exclusive `flock` at startup and held for the process's
+life, so a crash releases it.  The mode matters: `flock` works on any
+file a process can open, so a lock file others could read could be
+held by them, stalling the daemon.  No suffixes: one stick is expected, and on a
 replug the new instance may start while the old one still holds the
 lock through its destroy, so the new one waits for the lock (logging
 once, extending the start timeout) rather than taking another name.  On
@@ -245,8 +260,9 @@ ignored, and nothing is sent when it is unset.  Sent: `READY=1`,
 `WATCHDOG=1`, `STOPPING=1`, and `STATUS=` with the state.
 
 The watchdog is enabled when `WATCHDOG_USEC` is set and `WATCHDOG_PID`
-is unset or this process, as `sd_watchdog_enabled(3)` does; the tick
-is a quarter of `WATCHDOG_USEC`, else 1 s.  `WATCHDOG=1` is sent each
+is unset or this process, and `WATCHDOG_USEC` is not 0, as
+`sd_watchdog_enabled(3)` does; the tick is a quarter of
+`WATCHDOG_USEC` but at least 10 ms, else 1 s.  `WATCHDOG=1` is sent each
 main-loop iteration and inside every wait, but only while the poll
 thread's "last progress" stamp is within interval + 10 s, so a hung
 stick query stops the pings.  The unit uses `WatchdogSec=60s`.

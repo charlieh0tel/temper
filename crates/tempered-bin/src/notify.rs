@@ -18,6 +18,10 @@ const ABSTRACT_PREFIX: char = '@';
 /// Pings per watchdog period.
 const PINGS_PER_PERIOD: u32 = 4;
 
+/// The shortest tick, so a tiny `WATCHDOG_USEC` cannot make the main
+/// loop spin.
+const MIN_TICK: Duration = Duration::from_millis(10);
+
 /// The service manager's notification socket, if there is one.
 #[derive(Debug)]
 pub(crate) struct Notifier {
@@ -75,15 +79,19 @@ impl Notifier {
 }
 
 /// How often to ping the watchdog, if it is enabled for this process:
-/// `WATCHDOG_USEC` is set and `WATCHDOG_PID` is unset or this process.
+/// `WATCHDOG_USEC` is set and not 0, and `WATCHDOG_PID` is unset or this
+/// process, as `sd_watchdog_enabled(3)` has it.
 pub(crate) fn watchdog_tick(var: impl Fn(&str) -> Option<String>) -> Option<Duration> {
-    let usec = var(WATCHDOG_USEC)?.parse::<u64>().ok()?;
+    let usec = var(WATCHDOG_USEC)?
+        .parse::<u64>()
+        .ok()
+        .filter(|&usec| usec > 0)?;
     if let Some(pid) = var(WATCHDOG_PID)
         && pid.parse::<u32>().ok()? != process::id()
     {
         return None;
     }
-    Some(Duration::from_micros(usec) / PINGS_PER_PERIOD)
+    Some((Duration::from_micros(usec) / PINGS_PER_PERIOD).max(MIN_TICK))
 }
 
 #[cfg(test)]
@@ -144,5 +152,7 @@ mod tests {
             None
         );
         assert_eq!(watchdog_tick(env(&[(WATCHDOG_USEC, "junk")])), None);
+        assert_eq!(watchdog_tick(env(&[(WATCHDOG_USEC, "0")])), None);
+        assert_eq!(watchdog_tick(env(&[(WATCHDOG_USEC, "3")])), Some(MIN_TICK));
     }
 }

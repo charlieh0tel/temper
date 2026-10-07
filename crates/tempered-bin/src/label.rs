@@ -5,18 +5,25 @@ use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use rustix::fs::FlockOperation;
+use rustix::fs::Mode;
 use rustix::io::Errno;
 
 /// Longest label; it also becomes the uhid device name.
 const MAX_LEN: usize = 64;
 
 const LOCK_SUFFIX: &str = ".lock";
+
+/// Lock files are readable by their owner only: `flock` works on any
+/// file a process can open, whatever the open mode, so a lock others
+/// could open could be taken by them, stalling the daemon.
+const LOCK_MODE: u32 = 0o600;
 const TEMPORARY_SUFFIX: &str = ".tmp";
 
 /// A validated label: `[a-z0-9][a-z0-9_-]{0,63}`, safe as a file name.
@@ -87,7 +94,10 @@ impl LabelLock {
             .create(true)
             .truncate(false)
             .write(true)
+            .mode(LOCK_MODE)
             .open(dir.join(format!("{label}{LOCK_SUFFIX}")))?;
+        // A lock file left by an older version may be readable by others.
+        rustix::fs::fchmod(&lock, Mode::from_raw_mode(LOCK_MODE))?;
         match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
             Ok(()) => {}
             Err(Errno::WOULDBLOCK) => return Ok(None),
@@ -117,6 +127,8 @@ impl LabelLock {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
 
     fn label(text: &str) -> Label {
@@ -169,6 +181,19 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    #[test]
+    fn lock_file_is_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.lock");
+        fs::write(&path, "").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let _lock = LabelLock::try_acquire(dir.path(), &label("t"))
+            .unwrap()
+            .unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, LOCK_MODE);
     }
 
     #[test]

@@ -346,6 +346,14 @@ the result structs; `discover` skips entries that vanish mid-scan;
 `receive` waits without limit on an unrepresentable timeout instead of
 panicking; the settle and pause timing above.
 
+Daemon robustness: lock files 0600 (anyone could otherwise hold the
+label's lock); unsupported firmware exits 3; the firmware query is
+retried at startup; a sensor left by a crashed instance gets 10 s to
+go; a create cut short by shutdown is not counted and keeps the
+shutdown's status; SIGHUP is handled; hold ages use `CLOCK_BOOTTIME`;
+`WATCHDOG_USEC=0` disables the watchdog and the tick is at least
+10 ms.
+
 Commits, in order: refactor (no behavior change); library API;
 daemon robustness; descriptor; packaging and release; kernel patches;
 docs; then the release.
