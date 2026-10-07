@@ -70,7 +70,9 @@ answers the latter, but the date is unverified; see `docs/protocol.md`.
 ### uhid codec
 
 `struct uhid_event` is encoded and decoded by hand to bytes and moved
-with plain `read`/`write`, following `include/uapi/linux/uhid.h`;
+with plain `read`/`write`, following `include/uapi/linux/uhid.h`
+(packed, native-endian, 4376 bytes in full).  Writes stop after the
+last meaningful byte, since the kernel zero-fills the rest;
 reads use a buffer of the full event size, since a short read
 truncates and consumes the event.  Only `UHID_CREATE2` is used;
 unlike legacy `UHID_CREATE` it does not check the caller's
@@ -281,7 +283,9 @@ the apt repo, not crates.io.
 1. TEMPerGold protocol module and hidraw discovery; `tempered read`
    and `tempered info` to check the hardware.  Fixtures captured from
    the stick; see `docs/protocol.md`.  **Done.**
-2. uhid event codec, golden-byte tests.
+2. uhid event codec (`crates/tempered-bin/src/uhid.rs`), golden-byte
+   tests, and a root-only round trip through the real kernel
+   (create, `UHID_START`, destroy, `UHID_STOP`).  **Done.**
 3. HID sensor report descriptor and sensor state machine, tests.
 4. Daemon: threads, stale policy, `/run/tempered` link, signals,
    watchdog.  Root-only tests (`make test-hw`): one with no stick that
