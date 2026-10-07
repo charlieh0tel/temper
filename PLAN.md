@@ -261,6 +261,15 @@ before the service runs.
   `RestrictAddressFamilies=` and the rest of smartclockmon's
   hardening; documented.
 
+### One HID temperature sensor per machine
+
+The kernel's `hid-sensor-temperature` mishandles two instances and
+can oops when one is removed (static callbacks; see `docs/daemon.md`,
+"Only one HID temperature sensor").  The daemon refuses to create its
+sensor while another exists (exit 3), the label lock keeps a replug
+from overlapping, and the root tests serialize.  An upstream fix is
+drafted separately.
+
 ### Polling
 
 Default interval 10 s, minimum 1 s, set in `/etc/default/tempered`;

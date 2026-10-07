@@ -419,6 +419,7 @@ mod kernel_tests {
 
     use super::*;
     use crate::iio;
+    use crate::test_support;
     use crate::uhid::Bus;
     use crate::uhid::Create2;
     use crate::uhid::read_event;
@@ -479,6 +480,7 @@ mod kernel_tests {
     #[test]
     #[ignore = "needs root for /dev/uhid"]
     fn iio_device_reads_temperature() {
+        let _one = test_support::one_temperature_sensor();
         let uhid = Arc::new(File::options().read(true).write(true).open(UHID).unwrap());
         let create = Create2 {
             name: "tempered sensor test".to_owned(),

@@ -39,7 +39,7 @@ It runs in the foreground and never forks.
 | 0 | Stopped by `SIGTERM`/`SIGINT`, or the stick was unplugged |
 | 1 | Runtime failure, e.g. `/run/tempered` unusable; restarted |
 | 2 | Configuration error; not restarted |
-| 3 | The IIO device never appeared, three times running (e.g. a missing kernel module); not restarted |
+| 3 | The device cannot be presented: another HID temperature sensor exists, or the IIO device never appeared three times running (e.g. a missing kernel module); not restarted |
 
 Unplugging exits 0: `BindsTo=` stops the unit anyway, and a failure
 status would only make `Restart=on-failure` churn.  Status 3 is not
@@ -152,6 +152,29 @@ returns `io::Result`, so it is not changed: `Hidraw::receive` reports
 hang-up as an `ENODEV` `io::Error`, and the library's `protocol::Error`
 gains a `Gone` variant ("the device was removed") that the conversion
 from `io::Error` produces for `ENODEV`, covering the write path too.
+
+## Only one HID temperature sensor
+
+`hid-sensor-temperature` keeps one static `hid_sensor_hub_callbacks`
+for all its instances and overwrites its `pdev` on every probe
+(`drivers/iio/temperature/hid-sensor-temperature.c`; humidity has the
+same bug, the other HID sensor drivers keep theirs per instance).
+With two temperature sensors, reports for one are delivered with the
+other's device; once that one is removed, `temperature_capture_sample()`
+dereferences NULL and the kernel oopses, leaving the removal stuck.
+Found by running the root tests concurrently.
+
+So the daemon's sensor must be the only one on the machine:
+
+- Before every create, the daemon looks for a `HID-SENSOR-200033.*`
+  platform device; if one exists, it logs why and exits 3.
+- On a replug, the label lock keeps the new instance waiting until the
+  old one has exited, after its destroy, so two never overlap.
+- The root tests that create a temperature sensor take a process-wide
+  lock (`test_support::one_temperature_sensor`).
+
+A fix for the kernel (per-instance callbacks, as the accelerometer
+driver does) would lift this.
 
 ## Supervisor
 

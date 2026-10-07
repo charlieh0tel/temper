@@ -77,8 +77,9 @@ pub(crate) enum Exit {
     Failure,
     /// A configuration error; not restarted.
     Config,
-    /// The IIO device never appeared; not restarted.
-    NoIio,
+    /// The IIO device cannot be presented: another HID temperature
+    /// sensor exists, or the device never appeared.  Not restarted.
+    CannotPresent,
 }
 
 impl From<Exit> for ExitCode {
@@ -87,7 +88,7 @@ impl From<Exit> for ExitCode {
             Exit::Clean => 0,
             Exit::Failure => 1,
             Exit::Config => 2,
-            Exit::NoIio => 3,
+            Exit::CannotPresent => 3,
         })
     }
 }
@@ -405,13 +406,22 @@ impl Daemon {
         }
         match self.supervisor.on_reading(temperature, Instant::now()) {
             Action::Create(temperature) => {
+                if let Some(other) = iio::temperature_sensor() {
+                    self.logger.error(format_args!(
+                        "another HID temperature sensor exists ({}); the kernel's \
+                         hid-sensor-temperature cannot handle two, so not creating one",
+                        other.display()
+                    ));
+                    self.stopping = Some(Exit::CannotPresent);
+                    return;
+                }
                 let created = self.create(temperature);
                 if self.supervisor.created(created) == Some(Action::GiveUp) {
                     self.logger.error(format_args!(
                         "the IIO device never appeared; are hid_sensor_hub and \
                          hid_sensor_temperature available?"
                     ));
-                    self.stopping = Some(Exit::NoIio);
+                    self.stopping = Some(Exit::CannotPresent);
                 }
             }
             Action::Update(temperature) => self.update(temperature),

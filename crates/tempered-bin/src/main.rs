@@ -1,4 +1,6 @@
 mod daemon;
+#[cfg(test)]
+mod hardware_tests;
 mod iio;
 mod label;
 mod listen;
@@ -8,6 +10,8 @@ mod notify;
 mod schedule;
 mod sensor;
 mod supervisor;
+#[cfg(test)]
+mod test_support;
 mod uhid;
 
 use std::path::PathBuf;
