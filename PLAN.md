@@ -64,8 +64,8 @@ slot offsets the reading.  The MCU is unknown and no reflash path is
 published.  Hence the label is configuration, not device state.
 
 `tempered info` reports the read-only extras the vendor app uses:
-sensor type (`01 87 ee`) and manufacture date (`01 8a`), the latter
-untested on TEMPerGold.
+sensor type (`01 87 ee`) and manufacture date (`01 8a`).  The stick
+answers the latter, but the date is unverified; see `docs/protocol.md`.
 
 ### uhid codec
 
@@ -257,7 +257,8 @@ the apt repo only, not crates.io.  GPL-3.0-or-later.
 0. Scaffold: AGENTS.md, Cargo.toml, toolchain, lints, CI, this plan.
    **Done.**
 1. TEMPerGold protocol module and hidraw discovery; `tempered read`
-   to check the hardware.  Fixtures captured from the stick.
+   and `tempered info` to check the hardware.  Fixtures captured from
+   the stick; see `docs/protocol.md`.  **Done.**
 2. uhid event codec, golden-byte tests.
 3. HID sensor report descriptor and sensor state machine, tests.
 4. Daemon: threads, stale policy, `/run/tempered` link, signals,
