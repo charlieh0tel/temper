@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "tempered-bin"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "tempered-hid"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rustix",
  "thiserror",

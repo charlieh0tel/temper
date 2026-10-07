@@ -1,7 +1,20 @@
-tempered (0.1.0-1) unstable; urgency=low
+tempered (1.0.0-1) unstable; urgency=low
 
-  * First release: tempered reads a PCsensor TEMPerGold over hidraw
-    (read, info, log), and tempered daemon presents it as a Linux IIO
-    device through /dev/uhid, linked as /run/tempered/<label>.
+  * First release.  tempered presents a PCsensor TEMPerGold USB
+    thermometer (3553:a001) as a Linux IIO device: tempered daemon reads
+    the stick over hidraw and creates a virtual HID sensor through
+    /dev/uhid, which the kernel's HID sensor drivers turn into an
+    ordinary iio:deviceN, linked as /run/tempered/<label>.
+  * udev starts tempered@hidrawN when the stick is plugged in and stops
+    it when it is unplugged; the stick's keyboard interface is
+    deauthorized so it cannot type readings into a console.
+  * The last reading is held for 60 s (TEMPERED_HOLD) once the stick
+    stops answering; after that the IIO device is removed, so readers
+    see the failure rather than a stale value.
+  * The daemon refuses to start if another HID temperature sensor
+    exists: the kernel's hid-sensor-temperature cannot handle two.
+  * tempered read, info and log (JSON Lines) read the stick directly,
+    with the daemon stopped.
+  * The tempered-hid library, MIT OR Apache-2.0, is on crates.io.
 
- -- Christopher Hoover <ch@murgatroid.com>  Tue, 06 Oct 2026 20:00:23 -0700
+ -- Christopher Hoover <ch@murgatroid.com>  Tue, 06 Oct 2026 20:48:33 -0700
