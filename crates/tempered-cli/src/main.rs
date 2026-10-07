@@ -1,15 +1,11 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
-use anyhow::bail;
 use clap::Parser;
 use clap::Subcommand;
+use tempered::protocol::Stick;
 
-use tempered::hidraw;
-use tempered::hidraw::Hidraw;
-use tempered::temper::Stick;
-
-/// Present a PCsensor TEMPerGold USB thermometer as a Linux IIO device.
+/// Read a PCsensor TEMPerGold USB thermometer.
 #[derive(Debug, Parser)]
 #[command(version)]
 struct Cli {
@@ -31,21 +27,22 @@ enum Action {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let device = match cli.device {
-        Some(device) => device,
-        None => find_device()?,
+    let mut stick = match &cli.device {
+        Some(device) => {
+            Stick::open(device).with_context(|| format!("opening {}", device.display()))?
+        }
+        None => Stick::find()?,
     };
-    let hidraw = Hidraw::open(&device).with_context(|| format!("opening {}", device.display()))?;
-    let mut stick = Stick::new(hidraw);
     match cli.action {
         Action::Read => println!("{}", stick.temperature()?),
         Action::Info => {
-            println!("device: {}", device.display());
+            println!("device: {}", stick.transport().path().display());
             println!("firmware: {}", stick.firmware()?);
             let sensor_type = stick.sensor_type()?;
             println!(
                 "sensor_type: inner=0x{:02x} outer=0x{:02x}",
-                sensor_type.inner, sensor_type.outer
+                sensor_type.inner.code(),
+                sensor_type.outer.code()
             );
             let calibration = stick.calibration()?;
             println!(
@@ -61,21 +58,4 @@ fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-/// The only attached stick's data interface.
-fn find_device() -> anyhow::Result<PathBuf> {
-    let found = hidraw::discover().context("scanning for TEMPerGold sticks")?;
-    match found.as_slice() {
-        [device] => Ok(device.clone()),
-        [] => bail!("no TEMPerGold found"),
-        _ => bail!(
-            "several TEMPerGold sticks found, choose one with --device: {}",
-            found
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(" ")
-        ),
-    }
 }

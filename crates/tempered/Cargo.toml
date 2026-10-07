@@ -1,0 +1,20 @@
+[package]
+name = "tempered"
+description = "Read a PCsensor TEMPerGold USB thermometer over Linux hidraw"
+license = "MIT OR Apache-2.0"
+categories = ["hardware-support"]
+keywords = ["temper", "thermometer", "hidraw", "usb"]
+# Publishing to crates.io is undecided.
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rustix = { version = "1.1.5", features = ["event", "fs"] }
+thiserror = "2.0.21"

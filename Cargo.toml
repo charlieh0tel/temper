@@ -1,31 +1,27 @@
-[package]
-name = "tempered"
+# Do not add default-members: a bare `cargo test` covers every member
+# only while it is absent.
+[workspace]
+members = ["crates/tempered", "crates/tempered-cli"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
-license = "GPL-3.0-or-later"
-description = "Present a PCsensor TEMPerGold USB thermometer as a Linux IIO device via uhid"
 repository = "https://github.com/charlieh0tel/tempered"
-publish = false
 
 # Stripped in the packaged build: lintian objects to unstripped
 # binaries.
 [profile.release]
 strip = "symbols"
 
-[lints.rust]
+[workspace.lints.rust]
 missing_debug_implementations = "warn"
 unreachable_pub = "warn"
 unsafe_code = "deny"
 
-[lints.clippy]
+[workspace.lints.clippy]
 doc_markdown = "warn"
 enum_glob_use = "deny"
 todo = "warn"
-
-[dependencies]
-anyhow = "1.0.104"
-clap = { version = "4.6.7", features = ["derive"] }
-rustix = { version = "1.1.5", features = ["event", "fs"] }
-thiserror = "2.0.21"

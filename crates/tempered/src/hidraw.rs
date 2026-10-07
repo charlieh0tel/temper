@@ -14,17 +14,18 @@ use rustix::event::PollFd;
 use rustix::event::PollFlags;
 use rustix::event::Timespec;
 
-use crate::temper::REPORT_LEN;
-use crate::temper::Report;
-use crate::temper::Transport;
+use crate::protocol::REPORT_LEN;
+use crate::protocol::Report;
+use crate::protocol::Stick;
+use crate::protocol::Transport;
 
 const SYSFS_HIDRAW: &str = "/sys/class/hidraw";
 const DEV: &str = "/dev";
 
 /// `BUS_USB` from `include/uapi/linux/input.h`.  The virtual device
-/// `tempered` creates has the same VID:PID on `BUS_VIRTUAL`, so the bus
-/// is what tells them apart.
-const BUS_USB: u16 = 0x0003;
+/// `temperedd` creates has the same VID:PID on `BUS_VIRTUAL`, so the
+/// bus is what tells them apart.
+const BUS_USB: Bus = Bus(0x0003);
 
 /// `HID_PHYS` suffix of the stick's data interface, USB interface 1.
 /// Interface 0 is a boot keyboard.
@@ -35,23 +36,35 @@ const DATA_INTERFACE_PHYS_SUFFIX: &str = "/input1";
 /// IDs, so every write carries one.
 const REPORT_ID: u8 = 0x00;
 
+/// A HID bus type, as in `HID_ID` and `include/uapi/linux/input.h`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Bus(u16);
+
+/// A USB vendor ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VendorId(u16);
+
+/// A USB product ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ProductId(u16);
+
 /// A USB vendor and product ID pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct UsbId {
-    vendor: u16,
-    product: u16,
+    vendor: VendorId,
+    product: ProductId,
 }
 
-/// Sticks this program supports; only the hardware on hand so far.
+/// Sticks this crate supports; only the hardware on hand so far.
 const SUPPORTED: &[UsbId] = &[UsbId {
-    vendor: 0x3553,
-    product: 0xa001,
+    vendor: VendorId(0x3553),
+    product: ProductId(0xa001),
 }];
 
 /// The fields of a hidraw parent's `uevent` used for discovery.
 #[derive(Debug, PartialEq, Eq)]
 struct HidUevent {
-    bus: u16,
+    bus: Bus,
     id: UsbId,
     phys: String,
 }
@@ -65,9 +78,9 @@ impl HidUevent {
         };
         let mut fields = value("HID_ID")?.split(':');
         let mut hex = || u32::from_str_radix(fields.next()?, 16).ok();
-        let bus = u16::try_from(hex()?).ok()?;
-        let vendor = u16::try_from(hex()?).ok()?;
-        let product = u16::try_from(hex()?).ok()?;
+        let bus = Bus(u16::try_from(hex()?).ok()?);
+        let vendor = VendorId(u16::try_from(hex()?).ok()?);
+        let product = ProductId(u16::try_from(hex()?).ok()?);
         Some(Self {
             bus,
             id: UsbId { vendor, product },
@@ -97,16 +110,58 @@ pub fn discover() -> io::Result<Vec<PathBuf>> {
     Ok(found)
 }
 
+/// Why [`Stick::find`] found no single stick.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum FindError {
+    /// Scanning sysfs or opening the node failed.
+    #[error("finding the stick")]
+    Io(#[from] io::Error),
+    /// No stick is attached.
+    #[error("no TEMPerGold found")]
+    NotFound,
+    /// More than one stick is attached.
+    #[error("several TEMPerGold sticks found: {0:?}")]
+    Several(Vec<PathBuf>),
+}
+
 /// An open hidraw node.
 #[derive(Debug)]
 pub struct Hidraw {
     file: File,
+    path: PathBuf,
 }
 
 impl Hidraw {
+    /// Opens a hidraw node for reading and writing.
     pub fn open(path: &Path) -> io::Result<Self> {
         let file = File::options().read(true).write(true).open(path)?;
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            path: path.to_owned(),
+        })
+    }
+
+    /// The node's path.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Stick<Hidraw> {
+    /// Opens the stick whose data interface is the hidraw node `path`.
+    pub fn open(path: &Path) -> io::Result<Self> {
+        Hidraw::open(path).map(Self::new)
+    }
+
+    /// Opens the only attached stick.
+    pub fn find() -> Result<Self, FindError> {
+        let found = discover()?;
+        match found.as_slice() {
+            [path] => Ok(Self::open(path)?),
+            [] => Err(FindError::NotFound),
+            _ => Err(FindError::Several(found)),
+        }
     }
 }
 
@@ -154,10 +209,7 @@ MODALIAS=hid:b0003g0001v00003553p0000A001
             HidUevent::parse(DATA_INTERFACE),
             Some(HidUevent {
                 bus: BUS_USB,
-                id: UsbId {
-                    vendor: 0x3553,
-                    product: 0xa001
-                },
+                id: SUPPORTED[0],
                 phys: "usb-0000:00:14.0-1.3/input1".to_owned(),
             })
         );

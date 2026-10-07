@@ -2,10 +2,11 @@
 
 Presents a PCsensor TEMPerGold USB thermometer as a Linux IIO device.
 
-A small daemon reads the thermometer over hidraw and creates a virtual
-HID sensor hub through `/dev/uhid`.  The kernel's `hid-sensor-hub` and
-`hid-sensor-temperature` drivers bind to it and create an ordinary
-`iio:deviceN`, readable with libiio, `iio_info`, or sysfs.
+A small daemon, `temperedd`, reads the thermometer over hidraw and
+creates a virtual HID sensor hub through `/dev/uhid`.  The kernel's
+`hid-sensor-hub` and `hid-sensor-temperature` drivers bind to it and
+create an ordinary `iio:deviceN`, readable with libiio, `iio_info`, or
+sysfs.
 
 Status: early development.  Reading the stick works; the IIO side does
 not exist yet.  See `PLAN.md`.
@@ -22,6 +23,20 @@ sudo tempered info     # firmware, probes, calibration, manufacture date
 
 The stick is found automatically; `--device /dev/hidrawN` picks one.
 
+## Crates
+
+- `crates/tempered`: a library that only talks to the stick: protocol,
+  discovery and hidraw I/O.  Usable without the daemon:
+
+  ```rust
+  let mut stick = tempered::protocol::Stick::find()?;
+  println!("{} C", stick.temperature()?);
+  ```
+
+- `crates/tempered-cli`: the `tempered` command-line tool.
+- `crates/temperedd` (to come): the daemon, which presents the stick
+  as an IIO device (uhid, systemd).
+
 ## Documentation
 
 - `PLAN.md`: architecture, decisions and open work.
@@ -29,4 +44,7 @@ The stick is found automatically; `--device /dev/hidrawN` picks one.
 
 ## License
 
-GPL-3.0-or-later; see `LICENSE`.
+The `tempered` tool and `temperedd` daemon are GPL-3.0-or-later; see
+`LICENSE`.  The `tempered`
+library is MIT OR Apache-2.0; see `crates/tempered/LICENSE-MIT` and
+`crates/tempered/LICENSE-APACHE`.

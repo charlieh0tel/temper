@@ -1,7 +1,8 @@
 # TEMPerGold protocol
 
 What `tempered` sends to a PCsensor TEMPerGold and how it reads the
-replies.  Implemented in `src/temper.rs` and `src/hidraw.rs`.
+replies.  Implemented in the `tempered` library,
+`crates/tempered/src/protocol.rs` and `crates/tempered/src/hidraw.rs`.
 
 ## Sources
 
@@ -10,7 +11,7 @@ replies.  Implemented in `src/temper.rs` and `src/hidraw.rs`.
   `0557589d06840bbae85a5f11b46a71f14cbfe3082f5ee999230354c3974a78f5`).
 - urwen/temper, `temper.py` (commit 40536cf).
 - Captures from a `TEMPerGold_V3.5` stick, USB ID 3553:a001, in
-  `tests/fixtures/`.
+  `crates/tempered/tests/fixtures/`.
 
 ## Transport
 
