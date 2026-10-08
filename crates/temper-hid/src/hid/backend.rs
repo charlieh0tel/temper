@@ -55,12 +55,12 @@ pub(super) trait Backend: Sized + Send {
     fn open(path: &Path) -> io::Result<Self>;
 
     /// Writes one report, behind the 0x00 report ID, all of it or an
-    /// error.  Removal is `ENODEV` or kind `NotConnected`.
+    /// error.  Removal is an error of kind `NotConnected`.
     fn write(&mut self, report: &Report) -> io::Result<()>;
 
     /// Waits at most `timeout` (`None`: without limit) for one report.
     /// May return early, with `None` or an error of kind `Interrupted`;
-    /// the caller retries until its deadline.  Removal is `ENODEV` or
+    /// the caller retries until its deadline.  Removal is an error of
     /// kind `NotConnected`.
     fn read(&mut self, timeout: Option<Duration>) -> io::Result<Option<Report>>;
 }

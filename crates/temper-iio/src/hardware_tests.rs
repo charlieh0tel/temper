@@ -23,8 +23,8 @@ use std::time::Instant;
 use rustix::event::PollFd;
 use rustix::event::PollFlags;
 use rustix::event::Timespec;
-use temper_hid::hidraw::PRODUCT_ID;
-use temper_hid::hidraw::VENDOR_ID;
+use temper_hid::hid::PRODUCT_ID;
+use temper_hid::hid::VENDOR_ID;
 use tempfile::TempDir;
 
 use crate::iio::has_uniq;

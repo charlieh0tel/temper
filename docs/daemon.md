@@ -157,12 +157,12 @@ gone, and a panic there would abort a clean exit.
 After an unplug, hidraw's `poll` reports `POLLHUP`/`POLLERR` (set only
 when the device is gone) and `read` returns `EIO`; `ENODEV` comes only
 from write and ioctl (`hidraw.c`).  The public `Transport` trait
-returns `io::Result`, so it is not changed: `Hidraw::receive` reports
-hang-up as an `ENODEV` `io::Error`, and the library's `protocol::Error`
-has a `Gone` variant ("the device was removed") that the conversion
-from `io::Error` produces for `ENODEV`, covering the write path too,
-and for kind `NotConnected` (the portable form; `ENODEV` is checked
-on Unix only).
+returns `io::Result`, so it is not changed: `hid::Device` reports
+hang-up and a write's `ENODEV` as an `io::Error` of kind
+`NotConnected`, and the library's `protocol::Error` has a `Gone`
+variant ("the device was removed") that the conversion from
+`io::Error` produces for that kind (and for `ENODEV`, on Unix, from
+other transports).
 
 ## Only one HID temperature sensor
 

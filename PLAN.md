@@ -304,7 +304,7 @@ pushes an input report, so IIO buffered mode and triggers get data.
 A workspace of two crates, as smartclockmon does:
 
 - `crates/temper-hid` (was `tempered-hid`), a library that only
-  talks to the stick (protocol, discovery, hidraw transport), usable
+  talks to the stick (protocol, discovery, the `hid` transport), usable
   by third parties without the daemon.  thiserror, no anyhow.  Newtypes for units and IDs
   (`Celsius`, `RelativeHumidityPercent`, `Firmware`, `Probe`),
   `#[non_exhaustive]` public enums and result structs, documented
@@ -672,7 +672,7 @@ crates/temper-hid/src/
    passes.
 7. API: `hidraw` to `hid`, `Hidraw` to `Device`, `Scan` to `Enumerate`;
    the Linux backend reports removal as `NotConnected`.  The API is
-   then final.
+   then final.  Steps 1-7 done.
 8. Release 1.0.0, Linux only: hand-publish `temper-hid`, then
    `temper-hid-cli`, from the release commit; set their trusted
    publishers; push the tag; install `temper` and `temper-iio` here;

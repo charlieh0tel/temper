@@ -2,8 +2,8 @@
 //! thermometer and hygrometer over Linux hidraw.
 //!
 //! [`protocol`] encodes the stick's queries and decodes its replies over
-//! any [`protocol::Transport`]; [`hidraw`] finds the stick and provides
-//! the hidraw transport (Linux only); [`schedule`] paces repeated
+//! any [`protocol::Transport`]; [`hid`] finds the stick and provides
+//! the transport to it (Linux only, for now); [`schedule`] paces repeated
 //! queries.  `protocol` and `schedule` are portable.
 //!
 //! ```no_run
@@ -26,6 +26,6 @@
 #![warn(missing_docs)]
 
 #[cfg(target_os = "linux")]
-pub mod hidraw;
+pub mod hid;
 pub mod protocol;
 pub mod schedule;

@@ -240,7 +240,7 @@ impl From<io::Error> for Error {
     }
 }
 
-/// A channel to the stick's data interface.  [`crate::hidraw::Hidraw`]
+/// A channel to the stick's data interface.  [`crate::hid::Device`]
 /// is the usual one; implement this to reach the stick some other way.
 pub trait Transport {
     /// Sends one report.

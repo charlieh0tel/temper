@@ -25,9 +25,9 @@ use signal_hook::consts::SIGHUP;
 use signal_hook::consts::SIGINT;
 use signal_hook::consts::SIGTERM;
 use signal_hook::iterator::Signals;
-use temper_hid::hidraw::Hidraw;
-use temper_hid::hidraw::PRODUCT_ID;
-use temper_hid::hidraw::VENDOR_ID;
+use temper_hid::hid::Device;
+use temper_hid::hid::PRODUCT_ID;
+use temper_hid::hid::VENDOR_ID;
 use temper_hid::protocol;
 use temper_hid::protocol::Firmware;
 use temper_hid::protocol::Reading;
@@ -307,7 +307,7 @@ fn samples(reading: Reading) -> Vec<Sample> {
 /// Queries the firmware, retrying while the stick may still be settling
 /// after it was plugged in.  A stick that answers but is not supported
 /// is not retried, and its exit status keeps systemd from restarting.
-fn query_firmware(stick: &mut Stick<Hidraw>, notifier: &Notifier) -> Result<Firmware, StartError> {
+fn query_firmware(stick: &mut Stick<Device>, notifier: &Notifier) -> Result<Firmware, StartError> {
     let mut attempt = 1;
     loop {
         match stick.firmware() {
@@ -413,7 +413,7 @@ fn spawn_uhid(
 
 /// Queries the stick on schedule and reports each result.
 fn spawn_poll(
-    mut stick: Stick<Hidraw>,
+    mut stick: Stick<Device>,
     interval: Duration,
     progress: Arc<Mutex<Instant>>,
     sender: Sender<Message>,

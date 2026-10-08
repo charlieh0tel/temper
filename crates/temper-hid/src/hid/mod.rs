@@ -85,9 +85,9 @@ fn only(found: Vec<PathBuf>) -> Result<PathBuf, Error> {
 ///
 /// # Errors
 ///
-/// [`Error::Scan`] if the attached devices cannot be listed.
+/// [`Error::Enumerate`] if the attached devices cannot be listed.
 pub fn discover() -> Result<Vec<PathBuf>, Error> {
-    let candidates = Node::enumerate().map_err(|source| Error::Scan { source })?;
+    let candidates = Node::enumerate().map_err(|source| Error::Enumerate { source })?;
     Ok(stick_paths(candidates))
 }
 
@@ -98,7 +98,7 @@ pub enum Error {
     /// The attached devices could not be listed.
     #[error("scanning for TEMPer sticks")]
     #[non_exhaustive]
-    Scan {
+    Enumerate {
         /// The underlying error.
         source: io::Error,
     },
@@ -129,16 +129,16 @@ fn display_paths(paths: &[PathBuf]) -> String {
         .join(" ")
 }
 
-/// An open stick data interface.
+/// An open stick data interface: a `/dev/hidrawN` node on Linux.
 #[derive(Debug)]
-pub struct Hidraw {
+pub struct Device {
     node: Node,
     path: PathBuf,
     /// When the stick may take its first command.
     settled: Instant,
 }
 
-impl Hidraw {
+impl Device {
     /// Opens a stick's data interface for reading and writing.
     ///
     /// # Errors
@@ -163,38 +163,39 @@ impl Hidraw {
     }
 }
 
-impl AsFd for Hidraw {
+impl AsFd for Device {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.node.as_fd()
     }
 }
 
-impl Stick<Hidraw> {
+impl Stick<Device> {
     /// Opens the stick whose data interface is the node `path`.
     ///
     /// # Errors
     ///
     /// [`Error::Open`] if the node cannot be opened.
     pub fn open(path: &Path) -> Result<Self, Error> {
-        Hidraw::open(path).map(Self::new)
+        Device::open(path).map(Self::new)
     }
 
     /// Opens the only attached stick.
     ///
     /// # Errors
     ///
-    /// [`Error::Scan`], [`Error::NotFound`], [`Error::Several`], or
+    /// [`Error::Enumerate`], [`Error::NotFound`], [`Error::Several`], or
     /// [`Error::Open`].
     pub fn find() -> Result<Self, Error> {
         Self::open(&only(discover()?)?)
     }
 }
 
-/// `Stick<Hidraw>` can move to and be shared with another thread, as the
+/// `Stick<Device>` can move to and be shared with another thread, as the
 /// `temper-iio` daemon does; a change that broke that would fail here.
+/// `Sync` is Linux's: other platforms promise only `Send`.
 const _: () = {
     const fn send_and_sync<T: Send + Sync>() {}
-    send_and_sync::<Stick<Hidraw>>();
+    send_and_sync::<Stick<Device>>();
 };
 
 /// One report from `backend` within `timeout`, retrying the backend's
@@ -214,7 +215,7 @@ fn receive<B: Backend>(backend: &mut B, timeout: Duration) -> io::Result<Option<
     }
 }
 
-impl Transport for Hidraw {
+impl Transport for Device {
     /// Waits for the stick to settle after opening, and briefly before
     /// every command.
     fn send(&mut self, report: &Report) -> io::Result<()> {

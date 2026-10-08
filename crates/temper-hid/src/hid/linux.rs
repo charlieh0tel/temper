@@ -78,6 +78,11 @@ fn is_gone(error: &io::Error) -> bool {
         || error.raw_os_error() == Some(Errno::NODEV.raw_os_error())
 }
 
+/// The error a removed device is reported as.
+fn removed() -> io::Error {
+    io::Error::new(io::ErrorKind::NotConnected, "device removed")
+}
+
 /// An open `/dev/hidrawN` node.
 #[derive(Debug)]
 pub(super) struct Node {
@@ -121,10 +126,18 @@ impl Backend for Node {
         Ok(Self { file })
     }
 
+    /// A write to a removed device fails with `ENODEV`
+    /// (`drivers/hid/hidraw.c`), reported as `NotConnected`.
     fn write(&mut self, report: &Report) -> io::Result<()> {
         let mut buffer = [REPORT_ID; 1 + REPORT_LEN];
         buffer[1..].copy_from_slice(report);
-        self.file.write_all(&buffer)
+        self.file.write_all(&buffer).map_err(|error| {
+            if error.raw_os_error() == Some(Errno::NODEV.raw_os_error()) {
+                removed()
+            } else {
+                error
+            }
+        })
     }
 
     /// A `timeout` too long to represent waits without limit.
@@ -137,7 +150,7 @@ impl Backend for Node {
         // hidraw sets these only once the device is gone; a read would
         // then fail with EIO (drivers/hid/hidraw.c).
         if fds[0].revents().intersects(PollFlags::HUP | PollFlags::ERR) {
-            return Err(Errno::NODEV.into());
+            return Err(removed());
         }
         let mut report = [0; REPORT_LEN];
         let n = self.file.read(&mut report)?;

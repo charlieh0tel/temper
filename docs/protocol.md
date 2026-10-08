@@ -3,7 +3,7 @@
 What `temper-hid` sends to a PCsensor TEMPerGold or TEMPerHUM and how it
 reads the replies.  Both have USB ID 3553:a001 and the same commands;
 the firmware string tells them apart.  Implemented in the `temper-hid` library,
-`crates/temper-hid/src/protocol.rs` and `crates/temper-hid/src/hidraw/`
+`crates/temper-hid/src/protocol.rs` and `crates/temper-hid/src/hid/`
 (shared logic in `mod.rs`, the Linux backend in `linux.rs`).
 
 ## Sources
@@ -50,10 +50,11 @@ the bench stick.
 
 When the stick is unplugged, hidraw's `poll` reports `POLLHUP` and
 `POLLERR` and `read` fails with `EIO`; `ENODEV` comes only from
-writes (`drivers/hid/hidraw.c`).  The hidraw transport reports the
-hang-up as `ENODEV`, which the protocol layer turns into
-`Error::Gone`, as it does an I/O error of kind `NotConnected`, the
-portable way for any transport to report a removed device.
+writes (`drivers/hid/hidraw.c`).  The `hid::Device` transport reports
+both, hang-up and `ENODEV`, as an I/O error of kind `NotConnected`,
+the portable way for any transport to report a removed device, which
+the protocol layer turns into `Error::Gone` (as it does `ENODEV`, on
+Unix, from other transports).
 Interrupted `poll` and `read` calls are retried.
 
 ## Commands
