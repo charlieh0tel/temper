@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "temper-hid"
-version = "3.0.0"
+version = "1.0.0"
 dependencies = [
  "rustix",
  "thiserror",
@@ -463,7 +463,7 @@ dependencies = [
 
 [[package]]
 name = "temper-hid-cli"
-version = "3.0.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "temper-iio"
-version = "3.0.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
