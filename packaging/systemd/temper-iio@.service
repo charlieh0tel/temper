@@ -1,10 +1,10 @@
 [Unit]
 Description=TEMPer stick on /dev/%I as IIO devices
-Documentation=https://github.com/charlieh0tel/tempered-hid
-# Started by udev for each stick's data interface (60-tempered.rules),
+Documentation=https://github.com/charlieh0tel/temper
+# Started by udev for each stick's data interface (60-temper-iio.rules),
 # not enabled.  BindsTo= stops it when the stick is unplugged.  The
-# IIO devices are linked under /run/tempered; settings are in
-# /etc/default/tempered.  See docs/running.md and docs/daemon.md.
+# IIO devices are linked under /run/temper-iio; settings are in
+# /etc/default/temper-iio.  See docs/running.md and docs/daemon.md.
 BindsTo=dev-%i.device
 After=dev-%i.device
 
@@ -14,7 +14,7 @@ StartLimitBurst=10
 [Service]
 Type=notify
 NotifyAccess=main
-EnvironmentFile=-/etc/default/tempered
+EnvironmentFile=-/etc/default/temper-iio
 ExecStart=/usr/bin/temper-iio --device /dev/%I
 # Opened as root and passed as the fd named "uhid"; /dev/uhid stays
 # root-only, since it can create keyboards.
@@ -27,12 +27,12 @@ Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=2 3
 
-User=tempered
-Group=tempered
+User=temper-iio
+Group=temper-iio
 
-# /run/tempered comes from tmpfiles.d (tempered.conf), so it outlives
+# /run/temper-iio comes from tmpfiles.d (temper-iio.conf), so it outlives
 # any one instance.
-ReadWritePaths=/run/tempered
+ReadWritePaths=/run/temper-iio
 
 # Not PrivateDevices=: its /dev has no hidraw nodes.  /dev/uhid is
 # allowed too, in case the device policy applies to OpenFile=.

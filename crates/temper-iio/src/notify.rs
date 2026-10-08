@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn sends_to_abstract_socket() {
-        let name = format!("tempered-test-{}", process::id());
+        let name = format!("temper-iio-test-{}", process::id());
         let address = SocketAddr::from_abstract_name(&name).unwrap();
         let receiver = UnixDatagram::bind_addr(&address).unwrap();
         let notifier = Notifier::from_env(env(&[(NOTIFY_SOCKET, &format!("@{name}"))])).unwrap();

@@ -28,21 +28,35 @@ jobs:
           test "$cargo" = "$library"
           test "$cargo" = "$changelog"
 
-  deb:
+  # The shared definition, once per package: builds the .deb for amd64
+  # and arm64 with cargo-deb and adds it to the release.  The two
+  # calls' release jobs share a concurrency group, so they take turns.
+  # It reads the toolchain from rust-toolchain.toml.
+  deb-iio:
     needs: versions
-    # The shared definition: audits Cargo.lock, builds the .deb for
-    # amd64 and arm64 with cargo-deb (which picks the one crate carrying
-    # [package.metadata.deb], temper-iio), and creates the release.
-    # It reads the toolchain from rust-toolchain.toml.
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@v1
+    with:
+      package: temper-iio
+      artifact-suffix: temper-iio
     # Scoped to this job, not the dispatch job below.
+    permissions:
+      contents: write
+
+  deb-cli:
+    needs: versions
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@v1
+    with:
+      package: temper-hid-cli
+      artifact-suffix: temper
+      # Once is enough: deb-iio audits the same Cargo.lock.
+      audit: false
     permissions:
       contents: write
 
   # The release's notes are the changelog entry the release commit
   # wrote.
   notes:
-    needs: deb
+    needs: [deb-iio, deb-cli]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -55,14 +69,17 @@ jobs:
           ./packaging/release-notes.sh > notes.md
           gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
 
-  # Publishes the temper-hid library to crates.io with Trusted
-  # Publishing, as usbrelay-rs and ut325f-rs do: crates.io trusts this
-  # repository and this workflow file, and mints a short-lived token for
-  # the run's OIDC claim, so no registry token is stored here.  Runs
-  # after the .deb build, whose audit job gates it.  The library shares
-  # the workspace version, so every release publishes it.
+  # Publishes the temper-hid library, then the temper-hid-cli tool that
+  # depends on it, to crates.io with Trusted Publishing, as usbrelay-rs
+  # and ut325f-rs do: crates.io trusts this repository and this
+  # workflow file, and mints a short-lived token for the run's OIDC
+  # claim, so no registry token is stored here.  Runs after the .deb
+  # builds, whose audit gates it.  Both share the workspace version, so
+  # every release publishes them.  A version already on crates.io is
+  # skipped: a new crate's first version is published by hand
+  # (RELEASING.md).
   publish-crate:
-    needs: deb
+    needs: [deb-iio, deb-cli]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -76,12 +93,22 @@ jobs:
           toolchain: stable
       - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
         id: auth
-      - run: cargo publish -p temper-hid
+      - name: Publish what crates.io does not have yet
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          for crate in temper-hid temper-hid-cli; do
+            if curl -fsS -o /dev/null -A "temper release (github.com/charlieh0tel/temper)" \
+                "https://crates.io/api/v1/crates/$crate/${TAG#v}"; then
+              echo "$crate ${TAG#v} is already on crates.io"
+            else
+              cargo publish -p "$crate"
+            fi
+          done
 
   trigger-apt-repo:
-    needs: deb
+    needs: [deb-iio, deb-cli]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     steps:

@@ -1,21 +1,21 @@
 #!/bin/sh
-# Creates the service account and /run/tempered, applies the udev rules
+# Creates the service account and /run/temper-iio, applies the udev rules
 # to sticks already plugged in, and starts their daemons.  The order
 # matters: udev resolves GROUP= names when it reads rules, so the group
-# comes first, and the unit's ReadWritePaths= needs /run/tempered before
+# comes first, and the unit's ReadWritePaths= needs /run/temper-iio before
 # it starts.  See docs/running.md.
 set -e
 
 case "$1" in
 configure)
-    if ! getent passwd tempered >/dev/null; then
+    if ! getent passwd temper-iio >/dev/null; then
         adduser --system --group --no-create-home \
             --home /nonexistent \
             --gecos "TEMPer IIO daemon" \
-            tempered
+            temper-iio
     fi
     # The basename, so an override in /etc/tmpfiles.d wins.
-    systemd-tmpfiles --create tempered.conf || true
+    systemd-tmpfiles --create temper-iio.conf || true
     udevadm control --reload || true
     # Re-add each stick and its interfaces: that deauthorizes the
     # keyboard and gives the data interface its group.
@@ -28,14 +28,14 @@ configure)
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
         # An upgrade: running instances pick up the new binary.
-        systemctl --no-block try-restart 'tempered@*.service' || true
+        systemctl --no-block try-restart 'temper-iio@*.service' || true
         # udev starts the daemon only when a device first becomes
         # active, which a stick plugged in before a reinstall is not.
         for node in /sys/class/hidraw/hidraw*; do
             uevent="$node/device/uevent"
             if grep -qx 'HID_ID=0003:00003553:0000A001' "$uevent" 2>/dev/null &&
                 grep -q '^HID_PHYS=.*/input1$' "$uevent"; then
-                systemctl --no-block start "tempered@${node##*/}.service" || true
+                systemctl --no-block start "temper-iio@${node##*/}.service" || true
             fi
         done
     fi

@@ -1,0 +1,14 @@
+# Settings for temper-iio@.service; see `temper-iio --help`.
+
+# Name of the link to the temperature IIO device: /run/temper-iio/<label>.
+#TEMPER_IIO_LABEL=temperature
+
+# Name of the link to the humidity IIO device, for a TEMPerHUM.
+#TEMPER_IIO_HUMIDITY_LABEL=humidity
+
+# Time between readings, at least 1s.
+#TEMPER_IIO_INTERVAL=10s
+
+# How long to serve the last reading once the stick stops answering,
+# at least twice the interval; after that the IIO device is removed.
+#TEMPER_IIO_HOLD=60s

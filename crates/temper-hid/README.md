@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Reading the stick needs access to its hidraw node.  Other transports
 plug in through `protocol::Transport`.
 
-Part of [tempered-hid](https://github.com/charlieh0tel/tempered-hid),
+Part of [temper](https://github.com/charlieh0tel/temper),
 which also presents the stick as Linux IIO devices.  The protocol and
 its sources are in `docs/protocol.md` there.
 

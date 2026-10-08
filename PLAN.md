@@ -1,4 +1,4 @@
-# tempered plan
+# temper plan
 
 ## Goal
 
@@ -141,7 +141,7 @@ mode on (`hid-sensor-trigger.c`).  Rare, but cheap to avoid.
 
 A `/usr/lib/systemd/system-sleep/` hook runs before
 `/sys/power/state` is written.  In `pre` it records the active
-`tempered@*` instances to a root-owned file under `/run` and stops
+`temper-iio@*` instances to a root-owned file under `/run` and stops
 them; in `post` it starts, without blocking, those whose hidraw node
 still exists (a stick unplugged during sleep would make a blocking
 start wait 90 s for its device).  A glob cannot be used for
@@ -201,15 +201,15 @@ in `drivers/iio/industrialio-core.c` reads it only from the parent's
 firmware node, which a uhid-created device lacks, and
 `hid-sensor-temperature` has no `read_label`.
 
-So the daemon links its IIO device as `/run/tempered/<label>`; readers
-use `/run/tempered/<label>/in_temp_raw` and friends.  The label is set
-by `TEMPERED_LABEL` in `/etc/default/tempered`, default `temperature`
-(and a TEMPerHUM's humidity device by `TEMPERED_HUMIDITY_LABEL`,
+So the daemon links its IIO device as `/run/temper-iio/<label>`; readers
+use `/run/temper-iio/<label>/in_temp_raw` and friends.  The label is set
+by `TEMPER_IIO_LABEL` in `/etc/default/temper-iio`, default `temperature`
+(and a TEMPerHUM's humidity device by `TEMPER_IIO_HUMIDITY_LABEL`,
 default `humidity`),
 one value for all sticks: the stick has no serial number, and the
 port path is too fragile to key on.  Only one stick is expected, so
 there are no suffixes: each instance holds an `flock` on
-`/run/tempered/<label>.lock` (released on crash), and a second
+`/run/temper-iio/<label>.lock` (released on crash), and a second
 instance, such as one started by a replug while the old one is still
 stopping, waits for it.  The label must match
 `[a-z0-9][a-z0-9_-]{0,63}`.  The owner replaces its link atomically (symlink to a temporary name, then
@@ -224,17 +224,17 @@ an ancestor whose `uevent` has that `HID_UNIQ`.  Only `iio:device*`
 entries count: the sensor driver also registers a trigger,
 `temperature-devN`, listed as `triggerN` under the same parent.
 
-`/run/tempered` is created by tmpfiles.d, mode 0755 so readers can
-follow the link, owned by the `tempered` user, so it survives any one
+`/run/temper-iio` is created by tmpfiles.d, mode 0755 so readers can
+follow the link, owned by the `temper-iio` user, so it survives any one
 instance stopping; the unit's `ProtectSystem=strict` needs
-`ReadWritePaths=/run/tempered`, which fails the unit if the directory
+`ReadWritePaths=/run/temper-iio`, which fails the unit if the directory
 is missing, so postinst runs `systemd-tmpfiles --create` first.
 
 ### Privileges
 
-The template unit `tempered@.service` is started by udev per stick
+The template unit `temper-iio@.service` is started by udev per stick
 (`TAG+="systemd"`, `SYSTEMD_WANTS`), and `BindsTo=` the hidraw device
-so an unplug stops it.  It runs as the static system user `tempered`
+so an unplug stops it.  It runs as the static system user `temper-iio`
 (created in postinst, as smartclockmon does) with no capabilities.
 Not `DynamicUser=`: the udev rule below needs a group that exists
 before the service runs.
@@ -248,7 +248,7 @@ before the service runs.
   `unsafe` in edition 2024, and the daemon never execs.
 - `OpenFile=` does not expand `%I` in systemd 255, so the hidraw node
   cannot be passed that way; udev gives the stick's data interface
-  `GROUP="tempered", MODE="0660"` instead.
+  `GROUP="temper-iio", MODE="0660"` instead.
 - No `PrivateDevices=`: its private `/dev` has no hidraw nodes.
   Instead `DevicePolicy=closed` with `DeviceAllow=char-hidraw rw` and
   `DeviceAllow=/dev/uhid rw`.  `OpenFile=` works this way on the real
@@ -259,7 +259,7 @@ before the service runs.
 - udev resolves `GROUP=` names when it parses rules, so postinst
   creates the user before `udevadm control --reload` and
   `udevadm trigger`.  udev's `SYSTEMD_WANTS` fires only when a device
-  first becomes active, so postinst also starts `tempered@` for a
+  first becomes active, so postinst also starts `temper-iio@` for a
   stick already plugged in.
 - `RestrictAddressFamilies=AF_UNIX` (for `sd_notify`).
 - The daemon also runs without systemd, for tests and manual use: if
@@ -281,20 +281,20 @@ dropped, 2026-10-07).  The daemon refuses to create its sensors while
 another of either kind exists (exit 3), the label lock keeps a replug
 from overlapping, and the root tests serialize (and refuse to run
 while any HID temperature sensor exists, such as a running
-`tempered@`: running them beside the service oopsed the kernel and
+`temper-iio@`: running them beside the service oopsed the kernel and
 killed the daemon, 2026-10-07).  Upstream fixes are in `patches/`, the
 v2 series as sent to linux-iio and linux-input on 2026-10-07: the
 hub's callback removal synchronized with raw events (found by the
 Sashiko review of v1), then per-instance callbacks in temperature and
 humidity.  On 7.3-rc6, checkpatch-clean and compile-tested; a runtime
 test with the patched modules (`two_sensors_survive_a_destroy` in
-`sensor.rs`, opt-in with `TEMPERED_TWO_SENSORS=1`) waits on a MOK
+`sensor.rs`, opt-in with `TEMPER_IIO_TWO_SENSORS=1`) waits on a MOK
 enrollment for Secure Boot.  7.3 already fixes the temperature
 driver's remove order (967d066f5334).
 
 ### Polling
 
-Default interval 10 s, minimum 1 s, set in `/etc/default/tempered`;
+Default interval 10 s, minimum 1 s, set in `/etc/default/temper-iio`;
 not settable through IIO (see Report Interval above).  Each poll also
 pushes an input report, so IIO buffered mode and triggers get data.
 
@@ -450,17 +450,17 @@ daemon pun no longer fits a project with a separate CLI.  So:
   no `read`/`info`/`log` (those are `temper`'s).
 - Two debs: `temper` (the CLI; `Suggests: temper-iio`, which carries
   the udev rule that grants hidraw access) and `temper-iio` (daemon,
-  unit, udev rules, tmpfiles.d, sleep hook, defaults; `Conflicts:
-  tempered`).
+  unit, udev rules, tmpfiles.d, sleep hook, defaults).  No
+  `Conflicts: tempered`: only this machine ever had it, and it was
+  removed by hand.
 - System names, all `temper-iio`: unit `temper-iio@`, user
   `temper-iio`, `/run/temper-iio`, `/run/temper-iio-sleep`,
   `/etc/default/temper-iio`, `60-temper-iio.rules`, environment
   `TEMPER_IIO_LABEL`, `TEMPER_IIO_HUMIDITY_LABEL`,
   `TEMPER_IIO_INTERVAL`, `TEMPER_IIO_HOLD`, the uhid device's
-  `HID_PHYS` `temper-iio`.  For 1.0.0 a leftover sensor with
-  `HID_PHYS=tempered` (from the old daemon) also counts as the daemon's
-  own, so the swap cannot exit 3; dropped in a later release.  Test
-  variables follow (`TEMPER_IIO_TWO_SENSORS`).
+  `HID_PHYS` `temper-iio` (no alias for the old `tempered`: it only
+  mattered for a crashed old daemon during a swap).  Test variables
+  follow (`TEMPER_IIO_TWO_SENSORS`).
 - Versions restart at 1.0.0 for all three.  New repository
   `charlieh0tel/temper` with this history but without the `v1.0.0` to
   `v3.0.0` tags, which would collide; the local clone deletes those
@@ -476,8 +476,9 @@ daemon pun no longer fits a project with a separate CLI.  So:
 - `Schedule` (fixed-interval, non-drifting; `temper log` and the
   daemon's poll) moves into `temper-hid` as a public `schedule` module,
   made safe: a zero interval means no waiting instead of a division by
-  zero, and slot times saturate instead of overflowing.  The 1 s minimum poll interval moves there too,
-  as a constant: it is the stick's ("slow to answer").
+  zero, and slot times saturate instead of overflowing.  The 1 s
+  minimum poll interval moves there too, as a constant: it is the
+  stick's ("slow to answer").
 - The version stamp's `build.rs` lives in `temper-hid-cli` (a
   published crate may only use files inside itself); `temper-iio`
   points at it (`build = "../temper-hid-cli/build.rs"`).  Built from
@@ -490,16 +491,9 @@ daemon pun no longer fits a project with a separate CLI.  So:
 
 ### Migration from `tempered`
 
-A clean break, by hand, on the one machine that has it (this one):
-check `/etc/default/tempered` and port any `TEMPERED_*` settings to
-`TEMPER_IIO_*` in `/etc/default/temper-iio`; `apt install temper
-temper-iio` (which removes `tempered`: its prerm stops `tempered@*`);
-`apt purge tempered` (locks its account, drops its conffile); readers
-move from `/run/tempered` to `/run/temper-iio`.  On this machine the
-defaults file is stock and smartclock-sensord does not read
-`/run/tempered`.  No transitional package: it would need a version
-above `tempered` 3.0.0-1, against the restart at 1.0.0.  `/run`
-leftovers go at the next reboot.
+None: `tempered` was only ever installed on this machine, and has been
+removed by hand.  Readers move from `/run/tempered` to
+`/run/temper-iio`; smartclock-sensord does not read either yet.
 
 ### Transport: native on Linux, hidapi on Windows
 
@@ -660,7 +654,7 @@ crates/temper-hid/src/
    `Schedule` and the minimum interval into `temper-hid`; the shared
    `build.rs`; the daemon loses its subcommand.
 3. Packaging and system names (both debs, the shared changelog,
-   `HID_PHYS` with the legacy alias), CI and release workflows,
+   `HID_PHYS`), CI and release workflows,
    Makefile, and every doc: README, crate READMEs, RELEASING.md,
    AGENTS.md, `docs/`, the unit's `Documentation=`, Cargo
    `repository`, the root tests' binary path and arguments, the test
@@ -684,7 +678,7 @@ crates/temper-hid/src/
    `temper-hid-cli`, `make windows-check`, the exe call in CI and
    release, docs.rs targets.
 10. Release 1.0.0: hand-publish both crates, set trusted publishers,
-    push the tag; swap `tempered` for `temper-iio` here; yank
+    push the tag; install `temper` and `temper-iio` here; yank
     `tempered-hid` 3.0.0.
 
 Windows ships untested on hardware, and the 1.0.0 notes say so:

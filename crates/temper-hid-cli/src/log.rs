@@ -1,4 +1,4 @@
-//! `tempered log`: one JSON object per reading on stdout (JSON Lines).
+//! `temper log`: one JSON object per reading on stdout (JSON Lines).
 
 use std::io;
 use std::io::Write;

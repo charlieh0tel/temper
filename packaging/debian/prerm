@@ -4,7 +4,7 @@ set -e
 
 case "$1" in
 remove)
-    systemctl stop 'tempered@*.service' || true
+    systemctl stop 'temper-iio@*.service' || true
     ;;
 esac
 

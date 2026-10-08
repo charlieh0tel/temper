@@ -88,8 +88,8 @@ either stick confirms them.
 The model is the firmware string's prefix: `TEMPerGold_` or
 `TEMPerHUM_`, as ElfThing's `parseModel` tests; that excludes
 `TEMPerHumM12`, which ElfThing decodes differently.  Other firmware is
-refused: a TEMPer2 shares the USB ID but not the layout (`tempered
-daemon` exits 3 on one).  Readings outside the sensor's range are
+refused: a TEMPer2 shares the USB ID but not the layout (`temper-iio`
+exits 3 on one).  Readings outside the sensor's range are
 rejected: -40 to 125 degrees C on a TEMPerGold, -40 to 85 on a
 TEMPerHUM (ElfThing `parseModel`, `innerTemperatureCRangeMin` and
 `Max`), and 0 to 100 %RH (the TEMPerHUM's case marking, quoted in

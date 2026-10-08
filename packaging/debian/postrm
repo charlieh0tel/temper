@@ -16,9 +16,9 @@ esac
 
 case "$1" in
 purge)
-    rm -rf /run/tempered /run/tempered-sleep
-    if getent passwd tempered >/dev/null; then
-        usermod --lock --expiredate 1 --shell /usr/sbin/nologin tempered || true
+    rm -rf /run/temper-iio /run/temper-iio-sleep
+    if getent passwd temper-iio >/dev/null; then
+        usermod --lock --expiredate 1 --shell /usr/sbin/nologin temper-iio || true
     fi
     ;;
 esac

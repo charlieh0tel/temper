@@ -1,76 +1,11 @@
-tempered (3.0.0-1) unstable; urgency=low
+temper (1.0.0-1) unstable; urgency=low
 
-  * TEMPerHUM support (same USB ID 3553:a001, firmware TEMPerHUM_*):
-    the daemon presents its temperature and relative humidity as two
-    IIO devices, linked as /run/tempered/temperature and
-    /run/tempered/humidity (TEMPERED_HUMIDITY_LABEL).  Needs the
-    kernel's hid-sensor-humidity.  One stick at a time: the daemon
-    refuses to start beside another HID temperature or humidity
-    sensor until the kernel fix in patches/ lands.
-  * tempered read prints "C %RH" for a TEMPerHUM; info adds the model
-    and humidity; log adds humidity_percent and drops centi_celsius.
-  * Library (tempered-hid), breaking: values are Celsius and
-    RelativeHumidityPercent in natural units, replacing CentiCelsius,
-    DeciCelsius and DeciPercent; Stick::reading() replaces
-    Stick::temperature() and reports humidity for models that have
-    it.  New: Model, Firmware::model(), Stick::model().
-  * The TEMPerGold's IIO device is unchanged.
+  * First release as temper, renamed from tempered (whose history is at
+    https://github.com/charlieh0tel/tempered-hid): two packages, temper,
+    the command-line tool (temper read, info, log), and temper-iio, the
+    daemon that presents a TEMPerGold or TEMPerHUM as Linux IIO
+    devices.  The daemon's unit, user, settings and links are now named
+    temper-iio (temper-iio@, /etc/default/temper-iio with TEMPER_IIO_*
+    settings, /run/temper-iio).
 
- -- Christopher Hoover <ch@murgatroid.com>  Wed, 07 Oct 2026 20:59:20 -0700
-
-tempered (2.0.0-1) unstable; urgency=low
-
-  * Security: lock files under /run/tempered are now private (0600).
-    Before, any local user could take the label's lock and keep the
-    daemon from starting.
-  * Requires systemd 253 or later (for OpenFile=), now a package
-    dependency: Debian trixie or Ubuntu 24.04, not bookworm.
-  * A stick with other firmware on the same USB ID, such as a TEMPerHUM
-    or TEMPer2, is refused with exit status 3 instead of restarting in
-    a loop.  The firmware query is retried at startup, for sticks slow
-    to answer after plug-in.
-  * The daemon refuses to start beside another HID temperature sensor
-    (the kernel's hid-sensor-temperature mishandles two and can oops);
-    one left by a crashed instance gets 10 s to go away.  Kernel fixes
-    are in patches/ and have been sent upstream.
-  * The held reading's age counts time spent suspended, SIGHUP shuts
-    the daemon down cleanly, and a shutdown during startup keeps its
-    exit status.
-  * The virtual HID sensor's descriptor uses an Application collection
-    and a 32-bit temperature field, so buffered IIO reads of negative
-    temperatures are right.
-  * The suspend hook no longer blocks resume, and restarts only
-    daemons whose stick is still there.  Reinstalling starts the daemon
-    for a stick already plugged in.  Purging locks the tempered account
-    instead of deleting it.
-  * The tempered-hid library's API changes (2.0): opening a stick
-    returns hidraw::Error, which names the node on failure; error
-    variants are non_exhaustive.  Additions include VENDOR_ID and
-    PRODUCT_ID, constructors for the value types, Stick::into_inner,
-    and AsFd for Hidraw.  The stick gets 1 s to settle after opening
-    and 20 ms before each command, as PCsensor's own software does.
-  * tempered read, info and log no longer repeat the device name in
-    errors.
-
- -- Christopher Hoover <ch@murgatroid.com>  Wed, 07 Oct 2026 18:17:53 -0700
-
-tempered (1.0.0-1) unstable; urgency=low
-
-  * First release.  tempered presents a PCsensor TEMPerGold USB
-    thermometer (3553:a001) as a Linux IIO device: tempered daemon reads
-    the stick over hidraw and creates a virtual HID sensor through
-    /dev/uhid, which the kernel's HID sensor drivers turn into an
-    ordinary iio:deviceN, linked as /run/tempered/<label>.
-  * udev starts tempered@hidrawN when the stick is plugged in and stops
-    it when it is unplugged; the stick's keyboard interface is
-    deauthorized so it cannot type readings into a console.
-  * The last reading is held for 60 s (TEMPERED_HOLD) once the stick
-    stops answering; after that the IIO device is removed, so readers
-    see the failure rather than a stale value.
-  * The daemon refuses to start if another HID temperature sensor
-    exists: the kernel's hid-sensor-temperature cannot handle two.
-  * tempered read, info and log (JSON Lines) read the stick directly,
-    with the daemon stopped.
-  * The tempered-hid library, MIT OR Apache-2.0, is on crates.io.
-
- -- Christopher Hoover <ch@murgatroid.com>  Tue, 06 Oct 2026 20:48:33 -0700
+ -- Christopher Hoover <ch@murgatroid.com>  Wed, 07 Oct 2026 22:32:12 -0700

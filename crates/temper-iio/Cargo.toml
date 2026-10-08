@@ -33,7 +33,7 @@ workspace = true
 tempfile = "3.27.0"
 
 [package.metadata.deb]
-name = "tempered"
+name = "temper-iio"
 maintainer = "Christopher Hoover <ch@murgatroid.com>"
 copyright = "2026, Christopher Hoover"
 extended-description = """\
@@ -41,7 +41,7 @@ Presents a PCsensor TEMPerGold USB thermometer, or a TEMPerHUM \
 thermometer and hygrometer, as Linux IIO devices.  The temper-iio daemon \
 reads the stick over hidraw and creates a virtual HID sensor through \
 /dev/uhid, which the kernel's HID sensor drivers turn into ordinary \
-iio:deviceN entries, linked as /run/tempered/<label>. \
+iio:deviceN entries, linked as /run/temper-iio/<label>. \
 udev starts it when the stick is plugged in."""
 section = "utils"
 priority = "optional"
@@ -49,17 +49,17 @@ priority = "optional"
 depends = "$auto, adduser, systemd (>= 253)"
 assets = [
     ["target/release/temper-iio", "usr/bin/", "755"],
-    ["../../packaging/udev/60-tempered.rules", "usr/lib/udev/rules.d/60-tempered.rules", "644"],
-    ["../../packaging/systemd/tempered@.service", "usr/lib/systemd/system/tempered@.service", "644"],
-    ["../../packaging/systemd/tempered.default", "etc/default/tempered", "644"],
-    ["../../packaging/tmpfiles.d/tempered.conf", "usr/lib/tmpfiles.d/tempered.conf", "644"],
-    ["../../packaging/system-sleep/tempered", "usr/lib/systemd/system-sleep/tempered", "755"],
-    ["../../README.md", "usr/share/doc/tempered/README.md", "644"],
-    ["../../docs/running.md", "usr/share/doc/tempered/running.md", "644"],
-    ["../../docs/daemon.md", "usr/share/doc/tempered/daemon.md", "644"],
-    ["../../docs/protocol.md", "usr/share/doc/tempered/protocol.md", "644"],
+    ["../../packaging/udev/60-temper-iio.rules", "usr/lib/udev/rules.d/60-temper-iio.rules", "644"],
+    ["../../packaging/systemd/temper-iio@.service", "usr/lib/systemd/system/temper-iio@.service", "644"],
+    ["../../packaging/systemd/temper-iio.default", "etc/default/temper-iio", "644"],
+    ["../../packaging/tmpfiles.d/temper-iio.conf", "usr/lib/tmpfiles.d/temper-iio.conf", "644"],
+    ["../../packaging/system-sleep/temper-iio", "usr/lib/systemd/system-sleep/temper-iio", "755"],
+    ["../../README.md", "usr/share/doc/temper-iio/README.md", "644"],
+    ["../../docs/running.md", "usr/share/doc/temper-iio/running.md", "644"],
+    ["../../docs/daemon.md", "usr/share/doc/temper-iio/daemon.md", "644"],
+    ["../../docs/protocol.md", "usr/share/doc/temper-iio/protocol.md", "644"],
 ]
-conf-files = ["/etc/default/tempered"]
+conf-files = ["/etc/default/temper-iio"]
 maintainer-scripts = "../../packaging/debian/"
 changelog = "../../packaging/debian/changelog"
 # No systemd-units: the unit is a template that udev starts per stick,

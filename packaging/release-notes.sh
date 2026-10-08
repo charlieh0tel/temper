@@ -8,7 +8,7 @@ changelog=packaging/debian/changelog
 repository=$(sed -n 's/^repository = "\(.*\)"$/\1/p' Cargo.toml)
 
 # The upstream version of each entry, newest first: "0.1.0" from
-# "tempered (0.1.0-1) unstable; urgency=low".
+# "temper (0.1.0-1) unstable; urgency=low".
 versions=$(sed -n 's/^[a-z0-9.+-]* (\([^-)]*\)-[^)]*).*/\1/p' "$changelog")
 this=$(echo "$versions" | sed -n 1p)
 previous=$(echo "$versions" | sed -n 2p)

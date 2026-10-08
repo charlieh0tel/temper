@@ -1,4 +1,4 @@
-//! `tempered daemon`: presents the stick as an IIO device through
+//! `temper-iio`: presents the stick as an IIO device through
 //! `/dev/uhid`.  See `docs/daemon.md`.
 
 use std::env;
@@ -58,7 +58,7 @@ use crate::uhid::FromKernel;
 use crate::uhid::ToKernel;
 
 /// `HID_PHYS` of the virtual device.
-const PHYS: &str = "tempered";
+const PHYS: &str = "temper-iio";
 
 /// Firmware queries at startup before giving up: a stick can be slow to
 /// answer right after it is plugged in.

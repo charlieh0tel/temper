@@ -9,7 +9,7 @@ version = "3.0.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
-repository = "https://github.com/charlieh0tel/tempered-hid"
+repository = "https://github.com/charlieh0tel/temper"
 
 # The library at the workspace version: `temper-hid-cli` is published
 # and needs a version to depend on it; `make release` keeps this in

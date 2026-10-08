@@ -315,7 +315,7 @@ impl Drop for Daemon {
 #[ignore = "needs root for /dev/uhid"]
 fn serves_follows_holds_and_recovers() {
     let _one = test_support::one_sensor();
-    let stick = FakeStick::new("tempered-test-serve");
+    let stick = FakeStick::new("temper-iio-test-serve");
     let mut daemon = Daemon::start(&stick);
     let first = daemon.wait_for_link();
     assert_eq!(wait_for(SETUP_TIMEOUT, || daemon.raw()), Some(2345));
@@ -346,7 +346,7 @@ fn serves_follows_holds_and_recovers() {
 #[ignore = "needs root for /dev/uhid"]
 fn unplug_cleans_up_and_exits_zero() {
     let _one = test_support::one_sensor();
-    let mut stick = FakeStick::new("tempered-test-unplug");
+    let mut stick = FakeStick::new("temper-iio-test-unplug");
     let mut daemon = Daemon::start(&stick);
     let target = daemon.wait_for_link();
     stick.unplug();
@@ -359,7 +359,7 @@ fn unplug_cleans_up_and_exits_zero() {
 #[ignore = "needs root for /dev/uhid"]
 fn sigkill_leaves_no_device() {
     let _one = test_support::one_sensor();
-    let stick = FakeStick::new("tempered-test-kill");
+    let stick = FakeStick::new("temper-iio-test-kill");
     let mut daemon = Daemon::start(&stick);
     let target = daemon.wait_for_link();
     daemon.signal("KILL");
@@ -374,7 +374,7 @@ fn sigkill_leaves_no_device() {
 #[ignore = "needs root for /dev/uhid"]
 fn serves_humidity_from_a_temper_hum() {
     let _one = test_support::one_sensor();
-    let stick = FakeStick::with_humidity("tempered-test-hum", Some(3101));
+    let stick = FakeStick::with_humidity("temper-iio-test-hum", Some(3101));
     let mut daemon = Daemon::start(&stick);
     daemon.wait_for_link();
     let humidity = wait_for(SETUP_TIMEOUT, || fs::read_link(daemon.humidity_link()).ok())

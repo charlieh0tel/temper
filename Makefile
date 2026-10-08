@@ -27,8 +27,8 @@ test:
 
 # The root-only tests: the real kernel through /dev/uhid, a fake stick,
 # and the attached stick.  The test binaries run under sudo; the
-# daemon tests start target/debug/tempered, so build first.  Never run
-# in CI.  They create HID temperature sensors, so stop tempered@ first:
+# daemon tests start target/debug/temper-iio, so build first.  Never
+# run in CI.  They create HID sensors, so stop temper-iio@ first:
 # the kernel cannot handle two (docs/daemon.md).
 test-hw: build
 	$(CARGO) test --workspace --config "target.'cfg(unix)'.runner = 'sudo'" -- --ignored
@@ -40,7 +40,9 @@ clean:
 	$(CARGO) clean
 
 # Requires cargo-deb: cargo install cargo-deb
-# The package version is the binary's own (build.rs, rerun here so the
+# Two packages: temper (the CLI, from temper-hid-cli) and temper-iio
+# (the daemon).  Their version is the binaries' own (build.rs, shared
+# by both and rerun here so the
 # stamp sees edits not yet committed): a clean build on
 # its release tag takes the changelog's version, as CI does; anything
 # else is a snapshot that sorts after the release before it and before
@@ -49,10 +51,12 @@ deb:
 	touch crates/temper-hid-cli/build.rs
 	$(CARGO) build --release --workspace
 	@v=$$(./target/release/temper-iio --version | awk '{print $$2}'); \
-	case "$$v" in \
-	  *git*) $(CARGO) deb -p temper-iio --no-build -q --deb-version "$$v-1" ;; \
-	  *)     $(CARGO) deb -p temper-iio --no-build -q ;; \
-	esac
+	for p in temper-hid-cli temper-iio; do \
+	  case "$$v" in \
+	    *git*) $(CARGO) deb -p $$p --no-build -q --deb-version "$$v-1" ;; \
+	    *)     $(CARGO) deb -p $$p --no-build -q ;; \
+	  esac || exit 1; \
+	done
 
 # Cut a release: one version, in Cargo.toml and the changelog, tagged.
 # Refuses a dirty tree, since the tag would name a commit that does not
@@ -69,7 +73,7 @@ release:
 	sed -i 's/^\(temper-hid = {.*version = "\)[^"]*"/\1$(VERSION)"/' Cargo.toml
 	@head -1 packaging/debian/changelog | grep -q "($(VERSION)-1)" || { \
 	    printf '%s\n\n  * \n\n -- %s  %s\n\n%s\n' \
-	        'tempered ($(VERSION)-1) unstable; urgency=low' \
+	        'temper ($(VERSION)-1) unstable; urgency=low' \
 	        'Christopher Hoover <ch@murgatroid.com>' \
 	        "$$(date -R)" \
 	        "$$(cat packaging/debian/changelog)" > packaging/debian/changelog.new && \

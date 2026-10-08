@@ -493,7 +493,7 @@ mod tests {
     fn create2() -> Create2 {
         Create2 {
             name: "PCsensor TEMPerGold".to_owned(),
-            phys: "tempered".to_owned(),
+            phys: "temper-iio".to_owned(),
             uniq: "temperature".to_owned(),
             bus: Bus::VIRTUAL,
             vendor: 0x3553,
@@ -515,7 +515,7 @@ mod tests {
         let expected = concat(&[
             &11_u32.to_ne_bytes(),
             &padded("PCsensor TEMPerGold", 128),
-            &padded("tempered", 64),
+            &padded("temper-iio", 64),
             &padded("temperature", 64),
             &3_u16.to_ne_bytes(),
             &6_u16.to_ne_bytes(),
@@ -794,9 +794,9 @@ mod kernel_tests {
     fn create_start_destroy_stop() {
         let uhid = open().unwrap();
         let create = Create2 {
-            name: "tempered uhid test".to_owned(),
-            phys: "tempered-test".to_owned(),
-            uniq: "tempered-test".to_owned(),
+            name: "temper-iio uhid test".to_owned(),
+            phys: "temper-iio-test".to_owned(),
+            uniq: "temper-iio-test".to_owned(),
             bus: Bus::VIRTUAL,
             vendor: 0,
             product: 0,

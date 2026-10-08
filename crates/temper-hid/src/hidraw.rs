@@ -28,8 +28,8 @@ const SYSFS_HIDRAW: &str = "/sys/class/hidraw";
 const DEV: &str = "/dev";
 
 /// `BUS_USB` from `include/uapi/linux/input.h`.  The virtual device
-/// `tempered daemon` creates has the same VID:PID on `BUS_VIRTUAL`, so
-/// the bus is what tells them apart.
+/// the `temper-iio` daemon creates has the same VID:PID on
+/// `BUS_VIRTUAL`, so the bus is what tells them apart.
 const BUS_USB: Bus = Bus(0x0003);
 
 /// `HID_PHYS` suffix of the stick's data interface, USB interface 1.
@@ -258,7 +258,7 @@ impl Stick<Hidraw> {
 }
 
 /// `Stick<Hidraw>` can move to and be shared with another thread, as the
-/// `tempered` daemon does; a change that broke that would fail here.
+/// `temper-iio` daemon does; a change that broke that would fail here.
 const _: () = {
     const fn send_and_sync<T: Send + Sync>() {}
     send_and_sync::<Stick<Hidraw>>();

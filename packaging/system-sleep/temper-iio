@@ -1,17 +1,17 @@
 #!/bin/sh
-# Stops tempered before suspend and starts the same instances after:
+# Stops temper-iio before suspend and starts the same instances after:
 # the kernel's sensor suspend hook would otherwise send requests to a
 # frozen daemon, each timing out after 5 s.  A glob cannot do the
 # start: `systemctl start` globs match only loaded units, and udev does
 # not start them again, since the stick stays plugged in.  See
 # PLAN.md, "System suspend".
 
-state=/run/tempered-sleep
+state=/run/temper-iio-sleep
 
 case "$1" in
 pre)
     systemctl list-units --state=active --plain --no-legend \
-        'tempered@*.service' | awk '{ print $1 }' >"$state"
+        'temper-iio@*.service' | awk '{ print $1 }' >"$state"
     if [ -s "$state" ]; then
         xargs systemctl stop <"$state"
     fi
@@ -22,7 +22,7 @@ post)
     # would make a start wait for its device for 90 s.
     if [ -s "$state" ]; then
         while read -r unit; do
-            node=${unit#tempered@}
+            node=${unit#temper-iio@}
             node=${node%.service}
             if [ -e "/dev/$node" ]; then
                 systemctl --no-block start "$unit"

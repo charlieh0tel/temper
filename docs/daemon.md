@@ -16,17 +16,17 @@ temper-iio [--device /dev/hidrawN] [--label NAME]
 ```
 
 The options also read an environment variable
-(clap's `env` feature), so the unit's `EnvironmentFile=/etc/default/tempered`
+(clap's `env` feature), so the unit's `EnvironmentFile=/etc/default/temper-iio`
 configures it:
 
-- `TEMPERED_LABEL`, default `temperature`: the temperature link.
+- `TEMPER_IIO_LABEL`, default `temperature`: the temperature link.
   Matches `[a-z0-9][a-z0-9_-]{0,63}`, since it becomes a file name in
-  `/run/tempered` and the uhid device name.
-- `TEMPERED_HUMIDITY_LABEL`, default `humidity`: the humidity link,
+  `/run/temper-iio` and the uhid device name.
+- `TEMPER_IIO_HUMIDITY_LABEL`, default `humidity`: the humidity link,
   used only for a TEMPerHUM.  Same rules; must differ from the
   temperature label.
-- `TEMPERED_INTERVAL`, default `10s`, at least `1s`.
-- `TEMPERED_HOLD`, default `60s`, at least twice the interval, so one
+- `TEMPER_IIO_INTERVAL`, default `10s`, at least `1s`.
+- `TEMPER_IIO_HOLD`, default `60s`, at least twice the interval, so one
   missed reading never expires the hold.
 
 `--device` comes from the unit instance (`/dev/%I`); without it the
@@ -42,7 +42,7 @@ It runs in the foreground and never forks.
 | Status | Meaning |
 |---|---|
 | 0 | Stopped by `SIGTERM`, `SIGINT` or `SIGHUP`, or the stick was unplugged |
-| 1 | Runtime failure, e.g. `/run/tempered` unusable; restarted |
+| 1 | Runtime failure, e.g. `/run/temper-iio` unusable; restarted |
 | 2 | Configuration error; not restarted |
 | 3 | The device cannot be presented: the stick's firmware is not supported (e.g. a TEMPer2 with the same USB ID), another HID temperature or humidity sensor exists, or the IIO devices never appeared three times running (e.g. a missing kernel module); not restarted |
 
@@ -180,7 +180,7 @@ machine, and only one stick is supported at a time:
   platform device, and on a TEMPerHUM a `HID-SENSOR-200032.*`
   (humidity) one; if one exists, it logs why and exits 3.  One left
   by a crashed instance of this daemon (its uhid parent has
-  `HID_PHYS=tempered`) gets up to 10 s to go away first: a crashed
+  `HID_PHYS=temper-iio`) gets up to 10 s to go away first: a crashed
   process releases its label lock before the kernel finishes
   destroying its device.
 - It also only checks before creating.  Anything that creates a HID
@@ -228,15 +228,15 @@ one uhid device gives one IIO device per quantity, created and
 destroyed together.  The collections differ only in usages and report
 ID; see `sensor.rs` and `PLAN.md`, "Report descriptor requirements".
 
-`CREATE2` fields: name = the temperature label, phys = `tempered`, uniq =
-`tempered-<pid>-<n>` (unique per creation, so an IIO device from an
+`CREATE2` fields: name = the temperature label, phys = `temper-iio`, uniq =
+`temper-iio-<pid>-<n>` (unique per creation, so an IIO device from an
 earlier creation is never mistaken for the new one), bus
 `BUS_VIRTUAL`, VID:PID 3553:a001, version and country 0.
 
 ## The links
 
-One link per quantity: `/run/tempered/<label>` to the temperature IIO
-device, and on a TEMPerHUM `/run/tempered/<humidity-label>` to the
+One link per quantity: `/run/temper-iio/<label>` to the temperature IIO
+device, and on a TEMPerHUM `/run/temper-iio/<humidity-label>` to the
 humidity one.  Each label has its own lock, as below.
 
 After `CREATE2`, the main thread polls `/sys/bus/iio/devices` every
@@ -246,7 +246,7 @@ the driver's (`temperature`, `humidity`) and whose resolved path has
 an ancestor with `HID_UNIQ=<uniq>` in its `uevent`.  This matching is
 tested against the kernel (`sensor.rs`).
 
-A label is owned through `/run/tempered/<label>.lock`, mode 0600,
+A label is owned through `/run/temper-iio/<label>.lock`, mode 0600,
 taken with an exclusive `flock` at startup and held for the process's
 life, so a crash releases it.  The mode matters: `flock` works on any
 file a process can open, so a lock file others could read could be
@@ -254,18 +254,18 @@ held by them, stalling the daemon.  No suffixes: one stick is expected, and on a
 replug the new instance may start while the old one still holds the
 lock through its destroy, so the new one waits for the lock (logging
 once, extending the start timeout) rather than taking another name.  On
-taking the lock, a leftover `/run/tempered/<label>` is removed: a free
+taking the lock, a leftover `/run/temper-iio/<label>` is removed: a free
 lock means no live owner.  Lock files are never removed.
 
-A link `/run/tempered/<label>` is replaced atomically: remove any
-leftover `/run/tempered/.<label>.tmp`, symlink it to the resolved
+A link `/run/temper-iio/<label>` is replaced atomically: remove any
+leftover `/run/temper-iio/.<label>.tmp`, symlink it to the resolved
 sysfs path (which contains the never-reused HID sequence number),
 rename it over.  The links are removed before every `DESTROY` and on
 exit.  If writing a link fails while Present, that is logged and
 retried with each reading.
 
-`/run/tempered` itself comes from tmpfiles.d, mode 0755, owned by
-`tempered`, so readers such as smartclock-sensord can follow the links.
+`/run/temper-iio` itself comes from tmpfiles.d, mode 0755, owned by
+`temper-iio`, so readers such as smartclock-sensord can follow the links.
 
 ## Shutdown
 
@@ -325,7 +325,7 @@ effect until the kernel returns.
   - `SIGTERM` cleans up and exits 0; `kill -9` leaves no IIO device;
   - a fake TEMPerHUM gets both links, with the right values, and
     `SIGTERM` removes both.
-- Root only and opt-in (`TEMPERED_TWO_SENSORS=1`): two sensors, one
+- Root only and opt-in (`TEMPER_IIO_TWO_SENSORS=1`): two sensors, one
   destroyed while the other sends input reports.  Oopses a stock
   kernel; for testing the fix in `patches/`.
 - On the real unit: `OpenFile=` under `DevicePolicy=closed` and

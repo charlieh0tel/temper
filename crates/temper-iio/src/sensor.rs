@@ -634,7 +634,7 @@ mod kernel_tests {
     use crate::uhid::read_event;
     use crate::uhid::write_event;
 
-    const UNIQ: &str = "tempered-sensor-test";
+    const UNIQ: &str = "temper-iio-sensor-test";
     const TEMPERATURE: Sample = Sample {
         quantity: Quantity::Temperature,
         centi: 3512,
@@ -658,7 +658,7 @@ mod kernel_tests {
     const FAST_READ: Duration = Duration::from_millis(500);
 
     /// Opt-in for [`two_sensors_survive_a_destroy`].
-    const TWO_SENSORS: &str = "TEMPERED_TWO_SENSORS";
+    const TWO_SENSORS: &str = "TEMPER_IIO_TWO_SENSORS";
 
     /// How long the surviving sensor keeps sending input reports.
     const FLOOD: Duration = Duration::from_secs(2);
@@ -692,7 +692,7 @@ mod kernel_tests {
             let sensor = Sensor::new(samples);
             let uhid = Arc::new(uhid::open().unwrap());
             let create = Create2 {
-                name: "tempered sensor test".to_owned(),
+                name: "temper-iio sensor test".to_owned(),
                 phys: uniq.to_owned(),
                 uniq: uniq.to_owned(),
                 bus: Bus::VIRTUAL,
@@ -801,7 +801,7 @@ mod kernel_tests {
     /// The kernel bug in `iio::sensor`'s comment: with two
     /// sensors, destroying the second while the first sends input
     /// reports.  A stock `hid-sensor-temperature` oopses here, so this
-    /// runs only with `TEMPERED_TWO_SENSORS=1`, against a kernel carrying
+    /// runs only with `TEMPER_IIO_TWO_SENSORS=1`, against a kernel carrying
     /// the per-instance callbacks fix (`patches/`).
     #[test]
     #[ignore = "needs root, and oopses a kernel without the patches/ fix"]
@@ -811,8 +811,8 @@ mod kernel_tests {
             return;
         }
         let _one = test_support::one_sensor();
-        let first = TestSensor::create("tempered-two-first", &[TEMPERATURE]);
-        let mut second = TestSensor::create("tempered-two-second", &[TEMPERATURE]);
+        let first = TestSensor::create("temper-iio-two-first", &[TEMPERATURE]);
+        let mut second = TestSensor::create("temper-iio-two-second", &[TEMPERATURE]);
         let [report] = Sensor::new(&[TEMPERATURE])
             .update(&[TEMPERATURE])
             .try_into()

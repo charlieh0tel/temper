@@ -25,3 +25,22 @@ temper-hid.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.deb]
+name = "temper"
+maintainer = "Christopher Hoover <ch@murgatroid.com>"
+copyright = "2026, Christopher Hoover"
+extended-description = """\
+temper reads a PCsensor TEMPerGold USB thermometer or a TEMPerHUM \
+thermometer and hygrometer over hidraw: the reading, what the stick \
+reports about itself, and a JSON Lines log.  Access to the stick's \
+hidraw node comes from the udev rule in temper-iio."""
+section = "utils"
+priority = "optional"
+depends = "$auto"
+suggests = "temper-iio"
+assets = [
+    ["target/release/temper", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/temper/README.md", "644"],
+]
+changelog = "../../packaging/debian/changelog"

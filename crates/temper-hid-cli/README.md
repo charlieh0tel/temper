@@ -13,7 +13,7 @@ temper log     # JSON Lines: --interval, --count, --time rfc3339|unix
 `--device` picks a stick; without it the only attached one is used.
 Reading a stick needs access to its hidraw node.
 
-Part of [tempered-hid](https://github.com/charlieh0tel/tempered-hid),
+Part of [temper](https://github.com/charlieh0tel/temper),
 which also presents the stick as Linux IIO devices.
 
 GPL-3.0-or-later.

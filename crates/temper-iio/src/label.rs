@@ -1,4 +1,4 @@
-//! The label: the daemon's name under `/run/tempered`, owned through a
+//! The label: the daemon's name under `/run/temper-iio`, owned through a
 //! lock file, and the link to its IIO device.
 
 use std::fmt;

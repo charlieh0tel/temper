@@ -43,20 +43,20 @@ struct Cli {
     device: Option<PathBuf>,
     /// Name of the link to the temperature IIO device under the run
     /// directory.
-    #[arg(long, env = "TEMPERED_LABEL", default_value = "temperature")]
+    #[arg(long, env = "TEMPER_IIO_LABEL", default_value = "temperature")]
     label: Label,
     /// Name of the link to the humidity IIO device, for a TEMPerHUM.
-    #[arg(long, env = "TEMPERED_HUMIDITY_LABEL", default_value = "humidity")]
+    #[arg(long, env = "TEMPER_IIO_HUMIDITY_LABEL", default_value = "humidity")]
     humidity_label: Label,
     /// Time between readings, at least 1s.
-    #[arg(long, env = "TEMPERED_INTERVAL", default_value = "10s", value_parser = parse_interval)]
+    #[arg(long, env = "TEMPER_IIO_INTERVAL", default_value = "10s", value_parser = parse_interval)]
     interval: Duration,
     /// How long to serve the last reading once the stick stops
     /// answering; at least twice the interval.
-    #[arg(long, env = "TEMPERED_HOLD", default_value = "60s", value_parser = parse_duration)]
+    #[arg(long, env = "TEMPER_IIO_HOLD", default_value = "60s", value_parser = parse_duration)]
     hold: Duration,
     /// Where the label's link and lock live.
-    #[arg(long, hide = true, default_value = "/run/tempered")]
+    #[arg(long, hide = true, default_value = "/run/temper-iio")]
     run_dir: PathBuf,
 }
 

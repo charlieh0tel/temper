@@ -14,14 +14,14 @@ use crate::sensor::Quantity;
 static SENSOR: Mutex<()> = Mutex::new(());
 
 /// Holds the right to create HID temperature and humidity sensors, once
-/// no other exists, such as one from a running `tempered@` service.
+/// no other exists, such as one from a running `temper-iio@` service.
 pub(crate) fn one_sensor() -> MutexGuard<'static, ()> {
     let guard = lock(&SENSOR);
     for quantity in [Quantity::Temperature, Quantity::Humidity] {
         if let Some(other) = iio::sensor(quantity) {
             panic!(
                 "a HID {} sensor already exists ({}); stop it first, \
-                 e.g. systemctl stop 'tempered@*'",
+                 e.g. systemctl stop 'temper-iio@*'",
                 quantity.iio_name(),
                 other.display()
             );

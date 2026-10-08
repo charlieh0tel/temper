@@ -1,12 +1,12 @@
-# Claude Instructions for tempered
+# Claude Instructions for temper
 
 ## Project
 
 A small userspace program in Rust that presents the data from a
 PCsensor TEMPerGold USB thermometer or TEMPerHUM thermometer and
-hygrometer as IIO devices.  A systemd unit
-and a debian package (using my shared packaging workflows) is
-required.  See `README.md` for what the project is, `PLAN.md` for
+hygrometer as IIO devices, and a portable command-line tool for the
+same sticks.  A systemd unit and Debian packages (using my shared
+packaging workflows) are required.  See `README.md` for what the project is, `PLAN.md` for
 architecture, decisions and open work.
 
 - `PLAN.md` records why things are the way they are.  Read it before
