@@ -35,7 +35,8 @@ Rejected:
 hidraw through `std::fs`; no hidapi, no libusb, no C dependencies.
 Only USB ID 3553:a001 is supported for now (the hardware on hand); the
 ID table is easy to extend.  The data interface is USB interface 1:
-vendor page 0xFF00, 8-byte reports, no report IDs.  usbhid strips
+8-byte reports, no report IDs; its usage page differs by model
+(`docs/protocol.md`).  usbhid strips
 only a leading 0x00, so commands are written as 9 bytes, a 0x00
 report ID then the 8 command bytes.  The virtual device (below) has
 the same VID:PID and its own hidraw node, so discovery accepts only
@@ -533,11 +534,10 @@ builds without C for x86_64-pc-windows-gnu with mingw-w64, with
 prepends to reads and pads writes; several contexts may coexist,
 each enumerating every device.
 
-Interface 1's descriptor on the TEMPerHUM is `05 01 09 00 a1 01 09 01
-15 00 25 ff 95 08 75 08 81 02 09 01 91 02 c0`: Generic Desktop, usage 0,
-not vendor page 0xFF00 as `docs/protocol.md` says (and the root tests'
-fake stick copies).  Not yet captured on the TEMPerGold.  Discovery
-matches bus USB, VID:PID and interface 1, never the usage page.
+Interface 1's usage page differs by model: vendor page 0xFF00 on the
+TEMPerGold, Generic Desktop on the TEMPerHUM (both descriptors in
+`docs/protocol.md`).  So discovery matches bus USB, VID:PID and
+interface 1, never the usage page.
 
 ### Code structure
 
@@ -664,9 +664,9 @@ crates/temper-hid/src/
    local old tags and repoint `origin`; apt repository row; set
    `APT_REPO_TOKEN`; archive the old repository with a pointer.
 5. Refactor: removal portability (`Gone` also from `NotConnected`;
-   `ENODEV` and `rustix` gated to Unix), and the descriptor fix in
-   `docs/protocol.md` and the fake stick (TEMPerGold descriptor
-   captured first).
+   `ENODEV` and `rustix` gated to Unix), and both models' interface 1
+   descriptors in `docs/protocol.md` (the earlier claim of vendor page
+   0xFF00 was the TEMPerGold's only).
 6. Refactor: split `hidraw.rs` into the `hid` layout (still `hidraw`,
    still Linux-only), with the fake-backend tests; `make test-hw`
    passes.

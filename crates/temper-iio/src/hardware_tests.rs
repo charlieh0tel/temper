@@ -39,8 +39,10 @@ use crate::uhid::write_event;
 
 const SYSFS_HIDRAW: &str = "/sys/class/hidraw";
 
-/// The stick's data interface: vendor page, one 8-byte input and one
-/// 8-byte output report, no report IDs.  HID 1.11, section 6.2.2.
+/// The stick's data interface, as a TEMPerGold's: vendor page, one
+/// 8-byte input and one 8-byte output report, no report IDs (the real
+/// one adds a feature report nothing uses; `docs/protocol.md`).  HID
+/// 1.11, section 6.2.2.
 #[rustfmt::skip]
 const STICK_DESCRIPTOR: &[u8] = &[
     0x06, 0x00, 0xff,       // Usage Page (Vendor Defined 0xFF00)

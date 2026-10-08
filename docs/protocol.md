@@ -20,8 +20,22 @@ the firmware string tells them apart.  Implemented in the `temper-hid` library,
 
 The stick has two HID interfaces.  Interface 0 is a boot keyboard
 that can type readings; it is not used.  Interface 1 is the data
-interface: vendor usage page 0xFF00, 8-byte input and output reports,
-no report IDs.
+interface: 8-byte input and output reports, no report IDs.  Its usage
+page differs by model, so discovery goes by interface number, never
+by usage page.  Report descriptors, read from sysfs
+(`/sys/class/hidraw/hidrawN/device/report_descriptor`):
+
+```
+TEMPerGold_V3.5  06 00 ff 09 01 a1 01 09 01 15 00 26 ff 00 75 08 95 08 81 02
+                 09 01 95 08 91 02 05 0c 09 00 15 80 25 7f 75 08 95 08 b1 02
+                 c0
+TEMPerHUM_V4.1   05 01 09 00 a1 01 09 01 15 00 25 ff 95 08 75 08 81 02 09 01
+                 91 02 c0
+```
+
+The TEMPerGold's is vendor page 0xFF00, usage 1, with an extra 8-byte
+feature report on the Consumer page (usage 0) that nothing here uses;
+the TEMPerHUM's is Generic Desktop, usage 0, with no feature report.
 
 Each command is 8 bytes, written to the hidraw node as 9: a 0x00
 report ID, which usbhid strips, then the command.  Replies are read as
