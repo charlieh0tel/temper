@@ -119,6 +119,15 @@ pub enum Error {
         /// The underlying error.
         source: io::Error,
     },
+    /// Another process has the stick open, such as the `temper-iio`
+    /// daemon.  On Linux, each open holds an exclusive `flock(2)` on the
+    /// node, since two processes would read each other's replies.
+    #[error("{} is in use by another process, such as the temper-iio daemon", path.display())]
+    #[non_exhaustive]
+    Busy {
+        /// The node.
+        path: PathBuf,
+    },
     /// No stick is attached.
     #[error("no TEMPer stick found")]
     NotFound,
@@ -152,11 +161,20 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// [`Error::Open`] if the node cannot be opened.
+    /// [`Error::Busy`] if another process has it open (on Linux), and
+    /// [`Error::Open`] if it cannot be opened otherwise.
     pub fn open(path: &Path) -> Result<Self, Error> {
-        let node = Node::open(path).map_err(|source| Error::Open {
-            path: path.to_owned(),
-            source,
+        let node = Node::open(path).map_err(|source| {
+            if source.kind() == io::ErrorKind::ResourceBusy {
+                Error::Busy {
+                    path: path.to_owned(),
+                }
+            } else {
+                Error::Open {
+                    path: path.to_owned(),
+                    source,
+                }
+            }
         })?;
         Ok(Self {
             node,
@@ -184,7 +202,7 @@ impl Stick<Device> {
     ///
     /// # Errors
     ///
-    /// [`Error::Open`] if the node cannot be opened.
+    /// As [`Device::open`].
     pub fn open(path: &Path) -> Result<Self, Error> {
         Device::open(path).map(Self::new)
     }
@@ -194,7 +212,7 @@ impl Stick<Device> {
     /// # Errors
     ///
     /// [`Error::Enumerate`], [`Error::NotFound`], [`Error::Several`], or
-    /// [`Error::Open`].
+    /// as [`Device::open`].
     pub fn find() -> Result<Self, Error> {
         Self::open(&only(discover()?)?)
     }

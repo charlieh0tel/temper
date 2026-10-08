@@ -51,7 +51,8 @@ pub(super) trait Backend: Sized + Send {
     /// are skipped.
     fn enumerate() -> io::Result<Vec<Candidate>>;
 
-    /// Opens a data interface for reading and writing.
+    /// Opens a data interface for reading and writing.  One another
+    /// process has open is an error of kind `ResourceBusy`.
     fn open(path: &Path) -> io::Result<Self>;
 
     /// Writes one report, behind the 0x00 report ID, all of it or an

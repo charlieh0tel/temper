@@ -72,10 +72,13 @@ prefix to one line only.  Write errors on stderr are ignored.
 ## Startup
 
 1. Parse options.
-2. Open the stick's hidraw node; query the firmware to learn the
-   model, TEMPerGold or TEMPerHUM, up to 5 times a second apart while extending the
-   start timeout, since a stick can be slow right after plug-in.  A
-   stick that answers with other firmware exits 3 at once.
+2. Open the stick's hidraw node, taking its exclusive lock (held for
+   the daemon's life; `docs/protocol.md`, "Transport").  A node another
+   process holds, such as a running `temper read`, exits 1, and
+   systemd retries 5 s later.  Query the firmware to learn the model,
+   TEMPerGold or TEMPerHUM, up to 5 times a second apart while
+   extending the start timeout, since a stick can be slow right after
+   plug-in.  A stick that answers with other firmware exits 3 at once.
 3. Get `/dev/uhid`.  If `LISTEN_PID` is this process, the fd named
    `uhid` in `LISTEN_FDNAMES` (the unit says `OpenFile=/dev/uhid:uhid`)
    is fd `3 + its position`, checked against `LISTEN_FDS`.  It is

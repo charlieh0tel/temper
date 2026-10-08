@@ -293,6 +293,20 @@ test with the patched modules (`two_sensors_survive_a_destroy` in
 enrollment for Secure Boot.  7.3 already fixes the temperature
 driver's remove order (967d066f5334).
 
+### One process per stick
+
+hidraw hands every input report to every reader, so `temper` run
+beside `temper-iio` read the daemon's reply as part of its own
+(2026-10-08).  Opening a stick on Linux therefore takes an exclusive,
+non-blocking `flock(2)` on the node itself, held while it is open, and
+a second open fails with `hid::Error::Busy`.  The node, not a lock
+file: no directory, owner or cleanup, nothing beyond the access the
+node already needs, and a crash releases it.  Advisory, so only our
+programs respect it; Windows has no daemon and no lock.  Skipping
+other processes' replies in the protocol was considered and dropped:
+both sides would still lose queries to each other.  Released in 1.2.0
+(additive: a new variant on a `#[non_exhaustive]` error).
+
 ### Polling
 
 Default interval 10 s, minimum 1 s, set in `/etc/default/temper-iio`;

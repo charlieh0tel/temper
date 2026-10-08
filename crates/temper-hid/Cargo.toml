@@ -30,3 +30,6 @@ rustix = { version = "1.1.5", features = ["event", "fs"] }
 # C backends (PLAN.md, "Transport").
 [target.'cfg(windows)'.dependencies]
 hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

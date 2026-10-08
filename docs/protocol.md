@@ -38,6 +38,16 @@ The TEMPerGold's is vendor page 0xFF00, usage 1, with an extra 8-byte
 feature report on the Consumer page (usage 0) that nothing here uses;
 the TEMPerHUM's is Generic Desktop, usage 0, with no feature report.
 
+hidraw hands every input report to every process that has the node
+open, so two processes querying one stick read each other's replies:
+`temper read` beside the daemon once took the daemon's temperature
+reply for half of its firmware string.  So on Linux, opening a stick
+takes an exclusive, non-blocking `flock(2)` on the node, held while it
+is open; a second open fails with `hid::Error::Busy`.  The lock is on
+the node's inode, so a udev symlink to it counts too, and it is
+advisory: only programs that take it, such as `temper` and
+`temper-iio`, respect it.
+
 Each command is 8 bytes, written to the hidraw node as 9: a 0x00
 report ID, which usbhid strips, then the command.  Replies are read as
 8-byte reports, waiting up to 500 ms each (ElfThing's read timeout).

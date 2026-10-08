@@ -14,6 +14,7 @@ use std::time::Duration;
 use rustix::event::PollFd;
 use rustix::event::PollFlags;
 use rustix::event::Timespec;
+use rustix::fs::FlockOperation;
 use rustix::io::Errno;
 
 use super::backend::Backend;
@@ -121,9 +122,21 @@ impl Backend for Node {
         Ok(found)
     }
 
+    /// Takes an exclusive `flock(2)` on the node, held while it is
+    /// open: hidraw hands every input report to every reader, so two
+    /// processes querying one stick would read each other's replies.
+    /// The lock is on the node's inode, so a udev symlink to it counts
+    /// too.  It is advisory: only programs that take it respect it.
     fn open(path: &Path) -> io::Result<Self> {
         let file = File::options().read(true).write(true).open(path)?;
-        Ok(Self { file })
+        match rustix::fs::flock(&file, FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => Ok(Self { file }),
+            Err(Errno::WOULDBLOCK) => Err(io::Error::new(
+                io::ErrorKind::ResourceBusy,
+                "locked by another process",
+            )),
+            Err(errno) => Err(errno.into()),
+        }
     }
 
     /// A write to a removed device fails with `ENODEV`
@@ -206,6 +219,16 @@ MODALIAS=hid:b0003g0001v00003553p0000A001
         let uevent = HidUevent::parse(&text).unwrap();
         assert_eq!(uevent.bus, Bus::Other);
         assert_eq!(uevent.interface, None);
+    }
+
+    #[test]
+    fn second_open_is_busy() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let first = Node::open(file.path()).unwrap();
+        let error = Node::open(file.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::ResourceBusy);
+        drop(first);
+        Node::open(file.path()).unwrap();
     }
 
     #[test]
