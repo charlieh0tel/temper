@@ -1,44 +1,45 @@
 # temper
 
-Presents a PCsensor TEMPerGold USB thermometer, or a TEMPerHUM
-thermometer and hygrometer, as Linux IIO devices.  One stick at a
-time.
+Software for the PCsensor TEMPerGold and TEMPerHUM USB sticks
+(3553:a001):
 
-`temper-iio` reads the stick over hidraw and creates a virtual
-HID sensor through `/dev/uhid`; the kernel's HID sensor drivers turn
-it into ordinary `iio:deviceN` entries.  Needs systemd 253+ and a kernel
-with the HID sensor modules; see `docs/running.md`.
+- `temper`: a command-line tool.  Linux and Windows.
+- `temper-hid`: the Rust library under it.  Linux and Windows.
+- `temper-iio`: a Linux daemon that presents a stick as IIO devices.
 
-## Usage
+## Install
+
+- Debian and Ubuntu: `sudo apt install temper temper-iio` from
+  [apt-repo](https://github.com/charlieh0tel/apt-repo).
+- Rust: `cargo install temper-hid-cli`, or the
+  [`temper-hid`](https://crates.io/crates/temper-hid) crate.
+- Windows: the `.exe` on the
+  [releases](https://github.com/charlieh0tel/temper/releases) page,
+  untried on hardware.
+
+## Use
 
 ```
-sudo temper read      # degrees C, then %RH on a TEMPerHUM
-sudo temper info      # firmware, model, probes, calibration, manufacture date
-sudo temper log       # JSON Lines: --interval, --count, --time rfc3339|unix
-sudo temper-iio       # IIO devices: /run/temper-iio/temperature, /run/temper-iio/humidity
+temper read    # degrees C, then %RH on a TEMPerHUM
+temper info    # firmware, model, calibration
+temper log     # JSON Lines
 ```
 
-`read`, `info` and `log` talk to the stick directly; stop the daemon
-first (`systemctl stop 'temper-iio@*'`).  The `temper` package's udev
-rule gives the stick to group `temper` and to the user at the seat, so
-`sudo` is needed only for others; services such as smartclock-sensord
-add `SupplementaryGroups=temper`.  The two lock the stick, so
-`temper` says so if the daemon has it.  `temper` and the
-`temper-hid` library also run on Windows (`temper.exe` on each
-release), untried there on hardware; `make windows-check` builds and
-tests them from Linux.
+The udev rule in the `temper` package grants the stick to the user at
+the seat and to group `temper`.
 
-## Layout
+`temper-iio` serves `/run/temper-iio/temperature` and, on a TEMPerHUM,
+`/run/temper-iio/humidity`.  It handles one stick per machine, and
+holds it: stop it to use `temper`.  See `docs/running.md`.
 
-- `crates/temper-hid`: library that talks to the stick; no daemon
-  needed; published to crates.io.  MIT OR Apache-2.0.
-- `crates/temper-hid-cli`: the `temper` command-line tool (`read`,
-  `info`, `log`); published to crates.io.  GPL-3.0-or-later.
-- `crates/temper-iio`: the `temper-iio` daemon.  GPL-3.0-or-later.
-- `packaging/`: udev rules, systemd unit, tmpfiles.d, sleep hook,
-  Debian maintainer scripts.  `make deb` builds both packages,
-  `temper` (the CLI) and `temper-iio` (the daemon);
-  `RELEASING.md` covers releases.
-- `patches/`: upstream kernel fixes for hid-sensor-hub,
-  hid-sensor-temperature and hid-sensor-humidity (shared callbacks).
-- `PLAN.md`, `docs/`: decisions, protocol, daemon design, running.
+## Build
+
+```
+make ci             # what CI runs
+make test-hw        # root tests against the kernel and a stick
+make windows-check  # Windows build and tests, from Linux
+make deb            # both packages
+```
+
+Releases: `RELEASING.md`.  Design: `PLAN.md` and `docs/`.
+Licenses: library MIT OR Apache-2.0; programs GPL-3.0-or-later.
