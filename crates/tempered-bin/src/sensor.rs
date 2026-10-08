@@ -12,7 +12,6 @@
 //! "Report descriptor requirements".
 
 use rustix::io::Errno;
-use tempered_hid::protocol::CentiCelsius;
 
 use crate::uhid::FromKernel;
 use crate::uhid::ReportNumber;
@@ -20,9 +19,12 @@ use crate::uhid::ReportType;
 use crate::uhid::RequestId;
 use crate::uhid::ToKernel;
 
-/// The report ID of both the feature and the input report.  Numbered,
-/// because kernel 7.0 reserves a leading byte for unnumbered reports.
-const REPORT_ID: u8 = 1;
+/// The Sensors usage page, the high half of every usage below.
+const SENSOR_PAGE: u32 = 0x20;
+
+/// `HID_USAGE_SENSOR_DATA_MOD_CHANGE_SENSITIVITY_ABS`, or'ed into a data
+/// field's usage for its sensitivity property.
+const CHANGE_SENSITIVITY_ABS: u32 = 0x1000;
 
 /// Named array values are 1-based: the kernel forces Logical Minimum to
 /// 1 for power and reporting state (commit b0f847e16c1e), and the
@@ -35,87 +37,153 @@ const REPORTING_STATE_NO_EVENTS: u8 = ENUM_BASE;
 /// Power State selectors, in descriptor order: Undefined, then D0.
 const POWER_STATE_D0_FULL_POWER: u8 = ENUM_BASE + 1;
 
-/// The report descriptor.  One application collection, the temperature
-/// sensor, as the HID sensor usage examples have it, holding a feature
-/// report and an input report, both ID 1.
-#[rustfmt::skip]
-pub(crate) const DESCRIPTOR: &[u8] = &[
-    0x05, 0x20,                   // Usage Page (Sensors)
-    0x09, 0x33,                   // Usage (Environmental: Temperature)
-    0xa1, 0x01,                   // Collection (Application)
-    0x85, REPORT_ID,              //   Report ID (1)
+/// A quantity the virtual device reports.  Each is an application
+/// collection of its own with its own report ID, which
+/// `hid-sensor-hub` makes a platform device and the quantity's driver
+/// an IIO device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Quantity {
+    /// Degrees C; `hid-sensor-temperature`.
+    Temperature,
+}
 
-    // Feature report.
-    0x0a, 0x16, 0x03,             //   Usage (Property: Reporting State)
-    0x15, ENUM_BASE,              //   Logical Minimum (1)
-    0x25, 0x02,                   //   Logical Maximum (2)
-    0x75, 0x08,                   //   Report Size (8)
-    0x95, 0x01,                   //   Report Count (1)
-    0xa1, 0x02,                   //   Collection (Logical)
-    0x0a, 0x40, 0x08,             //     Usage (Reporting State: No Events)
-    0x0a, 0x41, 0x08,             //     Usage (Reporting State: All Events)
-    0xb1, 0x00,                   //     Feature (Data, Array, Absolute)
-    0xc0,                         //   End Collection
+impl Quantity {
+    /// The report ID of the collection's feature and input reports.
+    /// Numbered, because kernel 7.0 reserves a leading byte for
+    /// unnumbered reports.
+    fn report_id(self) -> u8 {
+        match self {
+            Self::Temperature => 1,
+        }
+    }
 
-    0x0a, 0x19, 0x03,             //   Usage (Property: Power State)
-    0x15, ENUM_BASE,              //   Logical Minimum (1)
-    0x25, 0x06,                   //   Logical Maximum (6)
-    0x75, 0x08,                   //   Report Size (8)
-    0x95, 0x01,                   //   Report Count (1)
-    0xa1, 0x02,                   //   Collection (Logical)
-    0x0a, 0x50, 0x08,             //     Usage (Power State: Undefined)
-    0x0a, 0x51, 0x08,             //     Usage (Power State: D0 Full Power)
-    0x0a, 0x52, 0x08,             //     Usage (Power State: D1 Low Power)
-    0x0a, 0x53, 0x08,             //     Usage (Power State: D2 Standby With Wake)
-    0x0a, 0x54, 0x08,             //     Usage (Power State: D3 Sleep With Wake)
-    0x0a, 0x55, 0x08,             //     Usage (Power State: D4 Power Off)
-    0xb1, 0x00,                   //     Feature (Data, Array, Absolute)
-    0xc0,                         //   End Collection
+    /// The collection's usage (`HID_USAGE_SENSOR_TEMPERATURE`).
+    fn usage(self) -> u32 {
+        match self {
+            Self::Temperature => 0x20_0033,
+        }
+    }
 
-    // Always 0: see PLAN.md, "Report Interval is always 0".  No Unit,
-    // so the kernel takes milliseconds.
-    0x0a, 0x0e, 0x03,             //   Usage (Property: Report Interval)
-    0x15, 0x00,                   //   Logical Minimum (0)
-    0x27, 0xff, 0xff, 0xff, 0x7f, //   Logical Maximum (2147483647)
-    0x75, 0x20,                   //   Report Size (32)
-    0x95, 0x01,                   //   Report Count (1)
-    0x65, 0x00,                   //   Unit (None)
-    0x55, 0x00,                   //   Unit Exponent (0)
-    0xb1, 0x02,                   //   Feature (Data, Variable, Absolute)
+    /// The input field's usage
+    /// (`HID_USAGE_SENSOR_DATA_ENVIRONMENTAL_TEMPERATURE`).
+    fn data_usage(self) -> u32 {
+        match self {
+            Self::Temperature => 0x20_0434,
+        }
+    }
 
-    // Always 0; present so in_temp_hysteresis reads succeed.
-    0x0a, 0x34, 0x14,             //   Usage (Change Sensitivity Absolute | Temperature)
-    0x15, 0x00,                   //   Logical Minimum (0)
-    0x27, 0xff, 0xff, 0x00, 0x00, //   Logical Maximum (65535)
-    0x75, 0x10,                   //   Report Size (16)
-    0x95, 0x01,                   //   Report Count (1)
-    0x65, 0x00,                   //   Unit (None)
-    0x55, 0x0e,                   //   Unit Exponent (-2)
-    0xb1, 0x02,                   //   Feature (Data, Variable, Absolute)
+    /// The `name` of the IIO device its driver registers.
+    pub(crate) fn iio_name(self) -> &'static str {
+        match self {
+            Self::Temperature => "temperature",
+        }
+    }
 
-    // Input report.  Unit None with exponent -2: the kernel's scale
-    // table matches only Unit 0 or degrees, giving in_temp_scale 10, so
-    // raw centi-degrees C read as milli-degrees C.  32 bits, though the
-    // stick's values fit 16: the driver's buffered path reads every
-    // sample as 32 bits (temperature_capture_sample()), so a 16-bit field
-    // would hand it two stray bytes, wrong for negative temperatures.
-    0x0a, 0x34, 0x04,             //   Usage (Data: Environmental Temperature)
-    0x16, 0x00, 0x80,             //   Logical Minimum (-32768)
-    0x26, 0xff, 0x7f,             //   Logical Maximum (32767)
-    0x75, 0x20,                   //   Report Size (32)
-    0x95, 0x01,                   //   Report Count (1)
-    0x65, 0x00,                   //   Unit (None)
-    0x55, 0x0e,                   //   Unit Exponent (-2)
-    0x81, 0x02,                   //   Input (Data, Variable, Absolute)
-    0xc0,                         // End Collection
-];
+    /// The name prefix of the platform devices `hid-sensor-hub` makes for
+    /// collections of this usage (`"HID-SENSOR-%x"`, then an instance).
+    pub(crate) fn platform_prefix(self) -> String {
+        format!("HID-SENSOR-{:x}.", self.usage())
+    }
+
+    /// The application collection: a feature report and an input report.
+    #[rustfmt::skip]
+    fn collection(self) -> Vec<u8> {
+        let id = self.report_id();
+        let [usage, ..] = self.usage().to_le_bytes();
+        let [data_low, data_high, ..] = self.data_usage().to_le_bytes();
+        let [sensitivity_low, sensitivity_high, ..] =
+            (self.data_usage() | CHANGE_SENSITIVITY_ABS).to_le_bytes();
+        let [page, ..] = SENSOR_PAGE.to_le_bytes();
+        vec![
+            0x05, page,                   // Usage Page (Sensors)
+            0x09, usage,                  // Usage (the sensor)
+            0xa1, 0x01,                   // Collection (Application)
+            0x85, id,                     //   Report ID
+
+            // Feature report.
+            0x0a, 0x16, 0x03,             //   Usage (Property: Reporting State)
+            0x15, ENUM_BASE,              //   Logical Minimum (1)
+            0x25, 0x02,                   //   Logical Maximum (2)
+            0x75, 0x08,                   //   Report Size (8)
+            0x95, 0x01,                   //   Report Count (1)
+            0xa1, 0x02,                   //   Collection (Logical)
+            0x0a, 0x40, 0x08,             //     Usage (Reporting State: No Events)
+            0x0a, 0x41, 0x08,             //     Usage (Reporting State: All Events)
+            0xb1, 0x00,                   //     Feature (Data, Array, Absolute)
+            0xc0,                         //   End Collection
+
+            0x0a, 0x19, 0x03,             //   Usage (Property: Power State)
+            0x15, ENUM_BASE,              //   Logical Minimum (1)
+            0x25, 0x06,                   //   Logical Maximum (6)
+            0x75, 0x08,                   //   Report Size (8)
+            0x95, 0x01,                   //   Report Count (1)
+            0xa1, 0x02,                   //   Collection (Logical)
+            0x0a, 0x50, 0x08,             //     Usage (Power State: Undefined)
+            0x0a, 0x51, 0x08,             //     Usage (Power State: D0 Full Power)
+            0x0a, 0x52, 0x08,             //     Usage (Power State: D1 Low Power)
+            0x0a, 0x53, 0x08,             //     Usage (Power State: D2 Standby With Wake)
+            0x0a, 0x54, 0x08,             //     Usage (Power State: D3 Sleep With Wake)
+            0x0a, 0x55, 0x08,             //     Usage (Power State: D4 Power Off)
+            0xb1, 0x00,                   //     Feature (Data, Array, Absolute)
+            0xc0,                         //   End Collection
+
+            // Always 0: see PLAN.md, "Report Interval is always 0".  No Unit,
+            // so the kernel takes milliseconds.
+            0x0a, 0x0e, 0x03,             //   Usage (Property: Report Interval)
+            0x15, 0x00,                   //   Logical Minimum (0)
+            0x27, 0xff, 0xff, 0xff, 0x7f, //   Logical Maximum (2147483647)
+            0x75, 0x20,                   //   Report Size (32)
+            0x95, 0x01,                   //   Report Count (1)
+            0x65, 0x00,                   //   Unit (None)
+            0x55, 0x00,                   //   Unit Exponent (0)
+            0xb1, 0x02,                   //   Feature (Data, Variable, Absolute)
+
+            // Always 0; present so in_*_hysteresis reads succeed.
+            0x0a, sensitivity_low, sensitivity_high,
+                                          //   Usage (Change Sensitivity Absolute | data)
+            0x15, 0x00,                   //   Logical Minimum (0)
+            0x27, 0xff, 0xff, 0x00, 0x00, //   Logical Maximum (65535)
+            0x75, 0x10,                   //   Report Size (16)
+            0x95, 0x01,                   //   Report Count (1)
+            0x65, 0x00,                   //   Unit (None)
+            0x55, 0x0e,                   //   Unit Exponent (-2)
+            0xb1, 0x02,                   //   Feature (Data, Variable, Absolute)
+
+            // Input report.  Unit None with exponent -2: the kernel's scale
+            // table matches only Unit 0 or the quantity's own unit, giving a
+            // scale of 10, so raw hundredths read as IIO's thousandths.  32
+            // bits, though the stick's values fit 16: the drivers' buffered
+            // path reads every sample as 32 bits (temperature_capture_sample()),
+            // so a 16-bit field would hand it two stray bytes, wrong for
+            // negative values.
+            0x0a, data_low, data_high,    //   Usage (the data field)
+            0x16, 0x00, 0x80,             //   Logical Minimum (-32768)
+            0x26, 0xff, 0x7f,             //   Logical Maximum (32767)
+            0x75, 0x20,                   //   Report Size (32)
+            0x95, 0x01,                   //   Report Count (1)
+            0x65, 0x00,                   //   Unit (None)
+            0x55, 0x0e,                   //   Unit Exponent (-2)
+            0x81, 0x02,                   //   Input (Data, Variable, Absolute)
+            0xc0,                         // End Collection
+        ]
+    }
+}
 
 /// Feature report length: ID, reporting state, power state, report
 /// interval (u32), sensitivity (u16).
 const FEATURE_REPORT_LEN: usize = 1 + 1 + 1 + 4 + 2;
 
-/// Input report length: ID, temperature (i32).
+/// Input report length: ID, value (i32).
 const INPUT_REPORT_LEN: usize = 1 + 4;
+
+/// One quantity's value, in hundredths of its unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Sample {
+    /// What it measures.
+    pub(crate) quantity: Quantity,
+    /// The value, in hundredths.
+    pub(crate) centi: i32,
+}
 
 /// The feature values the kernel may set.  Report interval and
 /// sensitivity are always reported as 0, so writes to them are dropped.
@@ -160,30 +228,81 @@ impl Reply {
     }
 }
 
-/// What the virtual sensor reports: the latest reading and the
-/// feature values.  There is always a reading: the daemon creates the
-/// device only once it has one.
+/// One quantity's collection: its latest value and its feature values.
 #[derive(Debug)]
-pub(crate) struct Sensor {
-    temperature: CentiCelsius,
+struct Channel {
+    sample: Sample,
     features: Features,
 }
 
-impl Sensor {
-    pub(crate) fn new(temperature: CentiCelsius) -> Self {
-        Self {
-            temperature,
-            features: Features {
-                reporting_state: REPORTING_STATE_NO_EVENTS,
-                power_state: POWER_STATE_D0_FULL_POWER,
-            },
-        }
+impl Channel {
+    /// Report interval and sensitivity are always 0.
+    fn feature_report(&self) -> Vec<u8> {
+        let mut report = Vec::with_capacity(FEATURE_REPORT_LEN);
+        report.extend_from_slice(&[
+            self.sample.quantity.report_id(),
+            self.features.reporting_state,
+            self.features.power_state,
+        ]);
+        report.extend_from_slice(&0_u32.to_le_bytes());
+        report.extend_from_slice(&0_u16.to_le_bytes());
+        report
     }
 
-    /// Records a new reading and returns the input report to push.
-    pub(crate) fn update(&mut self, temperature: CentiCelsius) -> Vec<u8> {
-        self.temperature = temperature;
-        self.input_report()
+    fn input_report(&self) -> Vec<u8> {
+        let mut report = Vec::with_capacity(INPUT_REPORT_LEN);
+        report.push(self.sample.quantity.report_id());
+        report.extend_from_slice(&self.sample.centi.to_le_bytes());
+        report
+    }
+}
+
+/// What the virtual sensor reports: a channel per quantity, fixed at
+/// creation.  There is always a reading: the daemon creates the device
+/// only once it has one.
+#[derive(Debug)]
+pub(crate) struct Sensor {
+    channels: Vec<Channel>,
+}
+
+impl Sensor {
+    /// A sensor reporting `samples`' quantities, in that order.
+    pub(crate) fn new(samples: &[Sample]) -> Self {
+        let channels = samples
+            .iter()
+            .map(|&sample| Channel {
+                sample,
+                features: Features {
+                    reporting_state: REPORTING_STATE_NO_EVENTS,
+                    power_state: POWER_STATE_D0_FULL_POWER,
+                },
+            })
+            .collect();
+        Self { channels }
+    }
+
+    /// The report descriptor: one application collection per quantity,
+    /// as the HID sensor usage examples have it.
+    pub(crate) fn descriptor(&self) -> Vec<u8> {
+        self.channels
+            .iter()
+            .flat_map(|channel| channel.sample.quantity.collection())
+            .collect()
+    }
+
+    /// Records new values and returns the input reports to push.  A
+    /// sample for a quantity the sensor does not report is dropped.
+    pub(crate) fn update(&mut self, samples: &[Sample]) -> Vec<Vec<u8>> {
+        for sample in samples {
+            if let Some(channel) = self
+                .channels
+                .iter_mut()
+                .find(|channel| channel.sample.quantity == sample.quantity)
+            {
+                channel.sample = *sample;
+            }
+        }
+        self.channels.iter().map(Channel::input_report).collect()
     }
 
     /// The reply to `event`, if it needs one.
@@ -211,11 +330,20 @@ impl Sensor {
         }
     }
 
+    /// The channel whose report ID is `number`.
+    fn channel(&self, number: ReportNumber) -> Result<usize, Errno> {
+        self.channels
+            .iter()
+            .position(|channel| ReportNumber(channel.sample.quantity.report_id()) == number)
+            .ok_or(Errno::INVAL)
+    }
+
     fn get_report(&self, number: ReportNumber, kind: ReportType) -> Result<Vec<u8>, Errno> {
-        match (number, kind) {
-            (ReportNumber(REPORT_ID), ReportType::Feature) => Ok(self.feature_report()),
-            (ReportNumber(REPORT_ID), ReportType::Input) => Ok(self.input_report()),
-            _ => Err(Errno::INVAL),
+        let channel = &self.channels[self.channel(number)?];
+        match kind {
+            ReportType::Feature => Ok(channel.feature_report()),
+            ReportType::Input => Ok(channel.input_report()),
+            ReportType::Output | ReportType::Unknown(_) => Err(Errno::INVAL),
         }
     }
 
@@ -226,11 +354,12 @@ impl Sensor {
         kind: ReportType,
         data: &[u8],
     ) -> Result<(), Errno> {
-        match (number, kind, data) {
-            (ReportNumber(REPORT_ID), ReportType::Feature, [REPORT_ID, reporting, power, ..])
-                if data.len() == FEATURE_REPORT_LEN =>
+        let index = self.channel(number)?;
+        match (kind, data) {
+            (ReportType::Feature, [id, reporting, power, ..])
+                if *id == number.0 && data.len() == FEATURE_REPORT_LEN =>
             {
-                self.features = Features {
+                self.channels[index].features = Features {
                     reporting_state: *reporting,
                     power_state: *power,
                 };
@@ -239,31 +368,20 @@ impl Sensor {
             _ => Err(Errno::INVAL),
         }
     }
-
-    /// Report interval and sensitivity are always 0.
-    fn feature_report(&self) -> Vec<u8> {
-        let mut report = Vec::with_capacity(FEATURE_REPORT_LEN);
-        report.extend_from_slice(&[
-            REPORT_ID,
-            self.features.reporting_state,
-            self.features.power_state,
-        ]);
-        report.extend_from_slice(&0_u32.to_le_bytes());
-        report.extend_from_slice(&0_u16.to_le_bytes());
-        report
-    }
-
-    fn input_report(&self) -> Vec<u8> {
-        let mut report = Vec::with_capacity(INPUT_REPORT_LEN);
-        report.push(REPORT_ID);
-        report.extend_from_slice(&i32::from(self.temperature.get()).to_le_bytes());
-        report
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const REPORT_ID: u8 = 1;
+
+    fn temperature(centi: i32) -> Sample {
+        Sample {
+            quantity: Quantity::Temperature,
+            centi,
+        }
+    }
 
     /// Totals the bits of each main item kind in `descriptor`, from its
     /// Report Size and Report Count globals; checks collections nest.
@@ -305,9 +423,27 @@ mod tests {
 
     #[test]
     fn descriptor_matches_report_lengths() {
-        let (input, feature) = report_bits(DESCRIPTOR);
+        let (input, feature) = report_bits(&Sensor::new(&[temperature(0)]).descriptor());
         assert_eq!(1 + input / 8, INPUT_REPORT_LEN);
         assert_eq!(1 + feature / 8, FEATURE_REPORT_LEN);
+    }
+
+    /// The temperature collection as released in 2.0.0, which the
+    /// kernel tests and the field have exercised.
+    const RELEASED_TEMPERATURE_DESCRIPTOR: &str = "\
+        05200933a10185010a16031501250275089501a1020a40080a4108b100c00a19\
+        031501250675089501a1020a50080a51080a52080a53080a54080a5508b100c0\
+        0a0e03150027ffffff7f7520950165005500b1020a3414150027ffff00007510\
+        95016500550eb1020a340416008026ff7f752095016500550e8102c0";
+
+    #[test]
+    fn temperature_descriptor_unchanged() {
+        let hex = Sensor::new(&[temperature(0)])
+            .descriptor()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(hex, RELEASED_TEMPERATURE_DESCRIPTOR);
     }
 
     fn get(sensor: &mut Sensor, kind: ReportType) -> Reply {
@@ -321,7 +457,7 @@ mod tests {
 
     #[test]
     fn input_report_carries_reading() {
-        let mut sensor = Sensor::new(CentiCelsius::new(3512));
+        let mut sensor = Sensor::new(&[temperature(3512)]);
         assert_eq!(
             get(&mut sensor, ReportType::Input),
             Reply::GetReport {
@@ -330,14 +466,14 @@ mod tests {
             }
         );
         assert_eq!(
-            sensor.update(CentiCelsius::new(-1000)),
-            [REPORT_ID, 0x18, 0xfc, 0xff, 0xff]
+            sensor.update(&[temperature(-1000)]),
+            [[REPORT_ID, 0x18, 0xfc, 0xff, 0xff]]
         );
     }
 
     #[test]
     fn feature_report_defaults() {
-        let mut sensor = Sensor::new(CentiCelsius::new(0));
+        let mut sensor = Sensor::new(&[temperature(0)]);
         assert_eq!(
             get(&mut sensor, ReportType::Feature),
             Reply::GetReport {
@@ -349,7 +485,7 @@ mod tests {
 
     #[test]
     fn set_feature_stores_states_and_drops_the_rest() {
-        let mut sensor = Sensor::new(CentiCelsius::new(0));
+        let mut sensor = Sensor::new(&[temperature(0)]);
         let set = FromKernel::SetReport {
             id: RequestId::new(6),
             number: ReportNumber(REPORT_ID),
@@ -371,7 +507,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_reports() {
-        let mut sensor = Sensor::new(CentiCelsius::new(0));
+        let mut sensor = Sensor::new(&[temperature(0)]);
         let get_other = FromKernel::GetReport {
             id: RequestId::new(1),
             number: ReportNumber(2),
@@ -401,7 +537,7 @@ mod tests {
 
     #[test]
     fn lifecycle_events_need_no_reply() {
-        let mut sensor = Sensor::new(CentiCelsius::new(0));
+        let mut sensor = Sensor::new(&[temperature(0)]);
         assert_eq!(sensor.handle(&FromKernel::Open), None);
         assert_eq!(sensor.handle(&FromKernel::Close), None);
     }
@@ -438,7 +574,10 @@ mod kernel_tests {
     use crate::uhid::write_event;
 
     const UNIQ: &str = "tempered-sensor-test";
-    const TEMPERATURE: CentiCelsius = CentiCelsius::new(3512);
+    const TEMPERATURE: Sample = Sample {
+        quantity: Quantity::Temperature,
+        centi: 3512,
+    };
 
     /// How long the drivers may take to bind and register.
     const SETUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -461,7 +600,7 @@ mod kernel_tests {
 
     /// Answers the kernel's requests from a [`Sensor`] until `stop`.
     fn serve(uhid: &File, stop: &AtomicBool) {
-        let mut sensor = Sensor::new(TEMPERATURE);
+        let mut sensor = Sensor::new(&[TEMPERATURE]);
         let timeout = Timespec::try_from(POLL_PERIOD).unwrap();
         while !stop.load(Ordering::Relaxed) {
             let mut fds = [PollFd::new(uhid, PollFlags::IN)];
@@ -496,7 +635,7 @@ mod kernel_tests {
                 product: 0,
                 version: 0,
                 country: 0,
-                descriptor: DESCRIPTOR.to_vec(),
+                descriptor: Sensor::new(&[TEMPERATURE]).descriptor(),
             };
             write_event(&uhid, ToKernel::Create2(&create)).unwrap();
             let stop = Arc::new(AtomicBool::new(false));
@@ -507,7 +646,7 @@ mod kernel_tests {
             };
             let start = Instant::now();
             let iio = loop {
-                if let Some(path) = iio::find(uniq) {
+                if let Some(path) = iio::find(uniq, Quantity::Temperature.iio_name()) {
                     break path;
                 }
                 assert!(start.elapsed() < SETUP_TIMEOUT, "no IIO device appeared");
@@ -555,7 +694,7 @@ mod kernel_tests {
         assert_eq!(read_attribute(&sensor.iio, "name"), "temperature");
         assert_eq!(
             read_attribute(&sensor.iio, "in_temp_raw"),
-            TEMPERATURE.get().to_string()
+            TEMPERATURE.centi.to_string()
         );
         let scale: f64 = read_attribute(&sensor.iio, "in_temp_scale")
             .parse()
@@ -566,11 +705,11 @@ mod kernel_tests {
         thread::sleep(IDLE);
         assert_eq!(
             read_attribute(&sensor.iio, "in_temp_raw"),
-            TEMPERATURE.get().to_string()
+            TEMPERATURE.centi.to_string()
         );
     }
 
-    /// The kernel bug in `iio::temperature_sensor`'s comment: with two
+    /// The kernel bug in `iio::sensor`'s comment: with two
     /// sensors, destroying the second while the first sends input
     /// reports.  A stock `hid-sensor-temperature` oopses here, so this
     /// runs only with `TEMPERED_TWO_SENSORS=1`, against a kernel carrying
@@ -585,7 +724,10 @@ mod kernel_tests {
         let _one = test_support::one_temperature_sensor();
         let first = TestSensor::create("tempered-two-first");
         let mut second = TestSensor::create("tempered-two-second");
-        let report = Sensor::new(TEMPERATURE).update(TEMPERATURE);
+        let [report] = Sensor::new(&[TEMPERATURE])
+            .update(&[TEMPERATURE])
+            .try_into()
+            .unwrap();
         let flooding = {
             let uhid = Arc::clone(&first.uhid);
             thread::spawn(move || {
@@ -599,7 +741,7 @@ mod kernel_tests {
         flooding.join().unwrap();
         assert_eq!(
             read_attribute(&first.iio, "in_temp_raw"),
-            TEMPERATURE.get().to_string()
+            TEMPERATURE.centi.to_string()
         );
     }
 }

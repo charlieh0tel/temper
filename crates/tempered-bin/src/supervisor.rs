@@ -4,7 +4,6 @@
 use std::time::Duration;
 
 use rustix::time::ClockId;
-use tempered_hid::protocol::CentiCelsius;
 
 /// IIO-device failures in a row before giving up.
 const MAX_CREATE_FAILURES: u32 = 3;
@@ -37,14 +36,14 @@ enum State {
     Present,
 }
 
-/// What to do with a good reading.
+/// What to do with a good reading `R`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Action {
+pub(crate) enum Action<R> {
     /// Create the virtual device serving this reading, then report the
     /// outcome with [`Supervisor::created`].
-    Create(CentiCelsius),
+    Create(R),
     /// Serve this reading from the existing device.
-    Update(CentiCelsius),
+    Update(R),
 }
 
 /// The lifecycle of the virtual device.
@@ -74,11 +73,11 @@ impl Supervisor {
         self.state == State::Present
     }
 
-    pub(crate) fn on_reading(&mut self, temperature: CentiCelsius, now: BootTime) -> Action {
+    pub(crate) fn on_reading<R>(&mut self, reading: R, now: BootTime) -> Action<R> {
         self.last_good = Some(now);
         match self.state {
-            State::Absent => Action::Create(temperature),
-            State::Present => Action::Update(temperature),
+            State::Absent => Action::Create(reading),
+            State::Present => Action::Update(reading),
         }
     }
 
@@ -147,7 +146,7 @@ mod tests {
     use super::*;
 
     const HOLD: Duration = Duration::from_secs(60);
-    const T: CentiCelsius = CentiCelsius::new(3512);
+    const T: i32 = 3512;
 
     fn present(start: BootTime) -> Supervisor {
         let mut supervisor = Supervisor::new(HOLD);

@@ -43,7 +43,8 @@ use crate::mutex::lock;
 use crate::notify;
 use crate::notify::Notifier;
 use crate::schedule::Schedule;
-use crate::sensor::DESCRIPTOR;
+use crate::sensor::Quantity;
+use crate::sensor::Sample;
 use crate::sensor::Sensor;
 use crate::supervisor::Action;
 use crate::supervisor::BootTime;
@@ -65,15 +66,15 @@ const FIRMWARE_ATTEMPTS: u32 = 5;
 /// The pause between those attempts.
 const FIRMWARE_RETRY: Duration = Duration::from_secs(1);
 
-/// How long to wait for a HID temperature sensor left by an earlier
+/// How long to wait for a HID sensor left by an earlier
 /// instance of this daemon to go away: one that crashed releases its
 /// label lock before the kernel finishes destroying its device.
 const LEFTOVER_WAIT: Duration = Duration::from_secs(10);
 
-/// How long the kernel may take to create the IIO device.
+/// How long the kernel may take to create the IIO devices.
 const IIO_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How often to look for the IIO device while waiting.
+/// How often to look for the IIO devices while waiting.
 const IIO_POLL: Duration = Duration::from_millis(100);
 
 /// Main-loop tick when systemd's watchdog is off.
@@ -156,6 +157,19 @@ pub(crate) fn run(config: Config) -> Exit {
     }
 }
 
+/// A quantity's IIO device link: its label, owned through the lock.
+#[derive(Debug)]
+struct Link {
+    /// Which IIO device it points to.
+    quantity: Quantity,
+    /// The link's name.
+    label: Label,
+    /// Ownership of the label, and its link.
+    lock: LabelLock,
+    /// A target that could not be linked yet; retried with each reading.
+    pending: Option<PathBuf>,
+}
+
 /// Everything the main thread owns.
 struct Daemon {
     /// Shared with the uhid thread.
@@ -166,10 +180,10 @@ struct Daemon {
     tick: Duration,
     /// Whether systemd's watchdog is on.
     watchdog: bool,
-    /// The link's name, and the uhid device's name.
-    label: Label,
-    /// Ownership of the label, and its link.
-    lock: LabelLock,
+    /// The uhid device's name: the first link's label.
+    name: String,
+    /// One per quantity the sensor reports, in descriptor order.
+    links: Vec<Link>,
     /// `/dev/uhid`, shared with the uhid and destroy threads.
     uhid: Arc<File>,
     /// What the virtual device serves; `None` while there is none.
@@ -186,8 +200,6 @@ struct Daemon {
     supervisor: Supervisor,
     /// When to log stick failures.
     failures: FailureLog,
-    /// A link that could not be written yet; retried with each reading.
-    pending_link: Option<PathBuf>,
     /// Devices created so far, to make each `uniq` unique.
     creations: u32,
     /// Set once the daemon must stop, with its exit status.
@@ -214,12 +226,26 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         ListenError::Io(_) => failure(error),
         _ => (Exit::Config, error.into()),
     })?);
-    let lock = acquire(&config.run_dir, &config.label, logger, &notifier)?;
+    let labels = [(Quantity::Temperature, config.label)];
+    let mut links = Vec::with_capacity(labels.len());
+    for (quantity, label) in labels {
+        let lock = acquire(&config.run_dir, &label, logger, &notifier)?;
+        links.push(Link {
+            quantity,
+            label,
+            lock,
+            pending: None,
+        });
+    }
     logger.info(format_args!(
-        "tempered {}: {firmware} at {}, label {}",
+        "tempered {}: {firmware} at {}, {}",
         VERSION,
         stick.transport().path().display(),
-        config.label
+        links
+            .iter()
+            .map(|link| format!("{} label {}", link.quantity.iio_name(), link.label))
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
 
     let (sender, messages) = mpsc::channel();
@@ -247,8 +273,8 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         notifier,
         tick: tick.unwrap_or(DEFAULT_TICK),
         watchdog: tick.is_some(),
-        label: config.label,
-        lock,
+        name: links[0].label.as_str().to_owned(),
+        links,
         uhid,
         sensor,
         progress,
@@ -257,7 +283,6 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         destroy_requests,
         supervisor: Supervisor::new(config.hold),
         failures: FailureLog::default(),
-        pending_link: None,
         creations: 0,
         stopping: None,
     })
@@ -461,40 +486,52 @@ impl Daemon {
         if self.failures.success() {
             self.logger.info(format_args!("readings resumed"));
         }
-        match self.supervisor.on_reading(temperature, BootTime::now()) {
-            Action::Create(temperature) => {
-                if let Some(other) = self.other_temperature_sensor() {
+        let samples = [Sample {
+            quantity: Quantity::Temperature,
+            centi: temperature.get().into(),
+        }];
+        match self.supervisor.on_reading(samples, BootTime::now()) {
+            Action::Create(samples) => {
+                if let Some((quantity, other)) = self.other_sensor() {
+                    let kind = quantity.iio_name();
                     self.logger.error(format_args!(
-                        "another HID temperature sensor exists ({}); the kernel's \
-                         hid-sensor-temperature cannot handle two, so not creating one",
+                        "another HID {kind} sensor exists ({}); the kernel's \
+                         hid-sensor-{kind} cannot handle two, so not creating one",
                         other.display()
                     ));
                     self.stop_with(Exit::CannotPresent);
                     return;
                 }
-                let created = self.create(temperature);
+                let created = self.create(&samples);
                 // A create cut short by shutdown is not a failure of the
                 // kernel's.
                 if self.stopping.is_none() && self.supervisor.created(created) {
                     self.logger.error(format_args!(
-                        "the IIO device never appeared; are hid_sensor_hub and \
-                         hid_sensor_temperature available?"
+                        "the IIO devices never appeared; are hid_sensor_hub and \
+                         the sensor drivers available?"
                     ));
                     self.stop_with(Exit::CannotPresent);
                 }
             }
-            Action::Update(temperature) => self.update(temperature),
+            Action::Update(samples) => self.update(&samples),
         }
     }
 
-    /// Another HID temperature sensor, once any left by a crashed
-    /// instance of this daemon has had time to go away.
-    fn other_temperature_sensor(&mut self) -> Option<PathBuf> {
+    /// Another HID sensor of a quantity this one reports, once any left
+    /// by a crashed instance of this daemon has had time to go away.
+    fn other_sensor(&mut self) -> Option<(Quantity, PathBuf)> {
+        let quantities = self
+            .links
+            .iter()
+            .map(|link| link.quantity)
+            .collect::<Vec<_>>();
         let deadline = Instant::now() + LEFTOVER_WAIT;
         loop {
-            let other = iio::temperature_sensor()?;
+            let (quantity, other) = quantities
+                .iter()
+                .find_map(|&quantity| Some((quantity, iio::sensor(quantity)?)))?;
             if !iio::sensor_has_phys(&other, PHYS) || Instant::now() >= deadline {
-                return Some(other);
+                return Some((quantity, other));
             }
             self.ping();
             thread::sleep(IIO_POLL);
@@ -522,13 +559,14 @@ impl Daemon {
         }
     }
 
-    /// Creates the device and links its IIO device; on failure leaves
+    /// Creates the device and links its IIO devices; on failure leaves
     /// none behind.
-    fn create(&mut self, temperature: CentiCelsius) -> bool {
+    fn create(&mut self, samples: &[Sample]) -> bool {
         self.creations += 1;
         let uniq = format!("{PHYS}-{}-{}", process::id(), self.creations);
+        let sensor = Sensor::new(samples);
         let create = Create2 {
-            name: self.label.as_str().to_owned(),
+            name: self.name.clone(),
             phys: PHYS.to_owned(),
             uniq: uniq.clone(),
             bus: Bus::VIRTUAL,
@@ -537,38 +575,46 @@ impl Daemon {
             product: PRODUCT_ID.into(),
             version: 0,
             country: 0,
-            descriptor: DESCRIPTOR.to_vec(),
+            descriptor: sensor.descriptor(),
         };
         // The sensor exists before CREATE2, so the probe's requests are
         // answered.
-        *lock(&self.sensor) = Some(Sensor::new(temperature));
+        *lock(&self.sensor) = Some(sensor);
         if let Err(error) = uhid::write_event(&self.uhid, ToKernel::Create2(&create)) {
             self.logger
                 .error(format_args!("creating the uhid device: {error}"));
             *lock(&self.sensor) = None;
             return false;
         }
-        let Some(path) = self.wait_for_iio(&uniq) else {
+        let Some(paths) = self.wait_for_iio(&uniq) else {
             if self.stopping.is_none() {
                 self.logger.warning(format_args!(
-                    "no IIO device within {IIO_TIMEOUT:?}; removing the uhid device"
+                    "no IIO devices within {IIO_TIMEOUT:?}; removing the uhid device"
                 ));
             }
             self.destroy();
             return false;
         };
-        self.logger.info(format_args!("created {}", path.display()));
-        self.link(path);
+        for (index, path) in paths.into_iter().enumerate() {
+            self.logger.info(format_args!("created {}", path.display()));
+            self.link(index, path);
+        }
         let _ = self.notifier.status("serving");
         true
     }
 
-    /// Waits for the IIO device, pinging and watching for shutdown.
-    fn wait_for_iio(&mut self, uniq: &str) -> Option<PathBuf> {
+    /// Waits for every link's IIO device, pinging and watching for
+    /// shutdown; their paths, in link order.
+    fn wait_for_iio(&mut self, uniq: &str) -> Option<Vec<PathBuf>> {
         let deadline = Instant::now() + IIO_TIMEOUT;
         while Instant::now() < deadline && self.stopping.is_none() {
-            if let Some(path) = iio::find(uniq) {
-                return Some(path);
+            let found = self
+                .links
+                .iter()
+                .map(|link| iio::find(uniq, link.quantity.iio_name()))
+                .collect::<Option<Vec<_>>>();
+            if found.is_some() {
+                return found;
             }
             self.ping();
             match self.messages.try_recv() {
@@ -580,44 +626,58 @@ impl Daemon {
         None
     }
 
-    fn update(&mut self, temperature: CentiCelsius) {
-        let report = lock(&self.sensor)
+    fn update(&mut self, samples: &[Sample]) {
+        let reports = lock(&self.sensor)
             .as_mut()
-            .map(|sensor| sensor.update(temperature));
-        let Some(report) = report else {
+            .map(|sensor| sensor.update(samples));
+        let Some(reports) = reports else {
             return;
         };
-        match uhid::write_event(&self.uhid, ToKernel::Input2(&report)) {
-            Ok(()) => {}
-            Err(error) if error.raw_os_error() == Some(Errno::INVAL.raw_os_error()) => {
-                self.logger
-                    .warning(format_args!("the kernel stopped the device; recreating it"));
-                self.supervisor.on_device_dead();
-                self.destroy();
+        for report in reports {
+            match uhid::write_event(&self.uhid, ToKernel::Input2(&report)) {
+                Ok(()) => {}
+                Err(error) if error.raw_os_error() == Some(Errno::INVAL.raw_os_error()) => {
+                    self.logger
+                        .warning(format_args!("the kernel stopped the device; recreating it"));
+                    self.supervisor.on_device_dead();
+                    self.destroy();
+                    return;
+                }
+                Err(error) => self.logger.debug(format_args!("input report: {error}")),
             }
-            Err(error) => self.logger.debug(format_args!("input report: {error}")),
         }
-        if let Some(path) = self.pending_link.take() {
-            self.link(path);
+        for index in 0..self.links.len() {
+            if let Some(path) = self.links[index].pending.take() {
+                self.link(index, path);
+            }
         }
     }
 
-    fn link(&mut self, path: PathBuf) {
-        if let Err(error) = self.lock.link(&path) {
+    /// Points link `index` at `path`, or keeps it pending on failure.
+    fn link(&mut self, index: usize, path: PathBuf) {
+        let link = &mut self.links[index];
+        if let Err(error) = link.lock.link(&path) {
             self.logger
-                .warning(format_args!("linking {}: {error}; will retry", self.label));
-            self.pending_link = Some(path);
+                .warning(format_args!("linking {}: {error}; will retry", link.label));
+            link.pending = Some(path);
         }
     }
 
-    /// Removes the link and destroys the device, waiting for the destroy
+    /// Removes every link.
+    fn unlink(&mut self) {
+        for link in &mut self.links {
+            link.pending = None;
+            if let Err(error) = link.lock.unlink() {
+                self.logger
+                    .warning(format_args!("removing {}: {error}", link.label));
+            }
+        }
+    }
+
+    /// Removes the links and destroys the device, waiting for the destroy
     /// thread while pinging the watchdog.
     fn destroy(&mut self) {
-        self.pending_link = None;
-        if let Err(error) = self.lock.unlink() {
-            self.logger
-                .warning(format_args!("removing the link: {error}"));
-        }
+        self.unlink();
         if self.destroy_requests.send(()).is_err() {
             self.stopping = Some(Exit::Failure);
             return;
@@ -649,9 +709,8 @@ impl Daemon {
         let _ = self.notifier.stopping();
         if self.supervisor.is_present() || lock(&self.sensor).is_some() {
             self.destroy();
-        } else if let Err(error) = self.lock.unlink() {
-            self.logger
-                .warning(format_args!("removing the link: {error}"));
+        } else {
+            self.unlink();
         }
         self.logger.info(format_args!("stopped"));
         exit
