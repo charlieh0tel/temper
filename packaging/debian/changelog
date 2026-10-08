@@ -1,3 +1,23 @@
+tempered (3.0.0-1) unstable; urgency=low
+
+  * TEMPerHUM support (same USB ID 3553:a001, firmware TEMPerHUM_*):
+    the daemon presents its temperature and relative humidity as two
+    IIO devices, linked as /run/tempered/temperature and
+    /run/tempered/humidity (TEMPERED_HUMIDITY_LABEL).  Needs the
+    kernel's hid-sensor-humidity.  One stick at a time: the daemon
+    refuses to start beside another HID temperature or humidity
+    sensor until the kernel fix in patches/ lands.
+  * tempered read prints "C %RH" for a TEMPerHUM; info adds the model
+    and humidity; log adds humidity_percent and drops centi_celsius.
+  * Library (tempered-hid), breaking: values are Celsius and
+    RelativeHumidityPercent in natural units, replacing CentiCelsius,
+    DeciCelsius and DeciPercent; Stick::reading() replaces
+    Stick::temperature() and reports humidity for models that have
+    it.  New: Model, Firmware::model(), Stick::model().
+  * The TEMPerGold's IIO device is unchanged.
+
+ -- Christopher Hoover <ch@murgatroid.com>  Wed, 07 Oct 2026 20:59:20 -0700
+
 tempered (2.0.0-1) unstable; urgency=low
 
   * Security: lock files under /run/tempered are now private (0600).

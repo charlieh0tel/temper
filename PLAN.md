@@ -416,8 +416,8 @@ bench on 2026-10-07; 2.0.0 refused it cleanly (exit 3).  Decisions:
   the kernel, rounding, which is exact for the stick's values, so the
   temperature descriptor and `in_temp_raw` are unchanged.
 
-Done: refactor (bc21e45), TEMPerHUM support, docs.  Remaining: the
-release, then yanking 2.0.0.
+Done: refactor (bc21e45), TEMPerHUM support and docs (297e751),
+release.  Remaining: yanking 2.0.0.
 
 ## Phases
 
