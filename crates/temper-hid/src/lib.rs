@@ -6,7 +6,7 @@
 //! the hidraw transport.  Linux only.
 //!
 //! ```no_run
-//! use tempered_hid::protocol::Stick;
+//! use temper_hid::protocol::Stick;
 //!
 //! let mut stick = Stick::find()?;
 //! let reading = stick.reading()?;

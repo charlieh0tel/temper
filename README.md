@@ -23,7 +23,7 @@ first (`systemctl stop 'tempered@*'`).
 
 ## Layout
 
-- `crates/tempered-hid`: library that talks to the stick; no daemon
+- `crates/temper-hid`: library that talks to the stick; no daemon
   needed; published to crates.io.  MIT OR Apache-2.0.
 - `crates/tempered-bin`: the `tempered` program.  GPL-3.0-or-later.
 - `packaging/`: udev rules, systemd unit, tmpfiles.d, sleep hook,

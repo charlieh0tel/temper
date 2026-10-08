@@ -1,7 +1,7 @@
 //! Tests against a real stick.  Need exactly one attached, and root:
 //! `sudo -E cargo test -- --ignored`.
 
-use tempered_hid::protocol::Stick;
+use temper_hid::protocol::Stick;
 
 #[test]
 #[ignore = "needs a TEMPerGold or TEMPerHUM, and root"]

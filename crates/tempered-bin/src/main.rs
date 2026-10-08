@@ -24,7 +24,7 @@ use clap::CommandFactory;
 use clap::Parser;
 use clap::Subcommand;
 use clap::error::ErrorKind;
-use tempered_hid::protocol::Stick;
+use temper_hid::protocol::Stick;
 
 use crate::daemon::Config;
 use crate::label::Label;

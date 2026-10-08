@@ -4,7 +4,7 @@ A release is a pushed `v*` tag.  The `release` workflow then checks
 that the tag, `Cargo.toml` and the changelog name one version, audits
 `Cargo.lock`, builds the `tempered` .deb for amd64 and arm64, creates
 the GitHub release with the changelog entry as its notes, publishes
-the `tempered-hid` library to crates.io (Trusted Publishing; no token
+the `temper-hid` library to crates.io (Trusted Publishing; no token
 stored here), and triggers a rebuild of `charlieh0tel/apt-repo`.  The
 library shares the workspace version, so every release publishes it,
 as in usbrelay-rs and ut325f-rs.
@@ -25,10 +25,11 @@ fails after the tag is pushed, fix it and release the next patch.
 
 ## The first release
 
-crates.io's Trusted Publishing cannot create a crate, so 1.0.0 was
-published by hand (`cargo publish -p tempered-hid`) and the trusted
-publisher (repository `charlieh0tel/tempered-hid`, workflow
-`release.yml`) set up afterward; that tag's `publish-crate` job failed
+crates.io's Trusted Publishing cannot create a crate, so the
+library's 1.0.0, then named `tempered-hid`, was published by hand
+(`cargo publish -p tempered-hid`) and the trusted publisher
+(repository `charlieh0tel/tempered-hid`, workflow `release.yml`) set
+up afterward; that tag's `publish-crate` job failed
 on the version already being there.  Later tags publish from CI.
 
 ## Versions between releases

@@ -8,9 +8,9 @@ use clap::ValueEnum;
 use jiff::Timestamp;
 use serde_json::Value;
 use serde_json::json;
-use tempered_hid::protocol::Reading;
-use tempered_hid::protocol::Stick;
-use tempered_hid::protocol::Transport;
+use temper_hid::protocol::Reading;
+use temper_hid::protocol::Stick;
+use temper_hid::protocol::Transport;
 
 use crate::schedule::Schedule;
 
@@ -83,8 +83,8 @@ fn line(
 
 #[cfg(test)]
 mod tests {
-    use tempered_hid::protocol::Celsius;
-    use tempered_hid::protocol::RelativeHumidityPercent;
+    use temper_hid::protocol::Celsius;
+    use temper_hid::protocol::RelativeHumidityPercent;
 
     use super::*;
 

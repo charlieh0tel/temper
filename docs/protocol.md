@@ -2,8 +2,8 @@
 
 What `tempered` sends to a PCsensor TEMPerGold or TEMPerHUM and how it
 reads the replies.  Both have USB ID 3553:a001 and the same commands;
-the firmware string tells them apart.  Implemented in the `tempered-hid` library,
-`crates/tempered-hid/src/protocol.rs` and `crates/tempered-hid/src/hidraw.rs`.
+the firmware string tells them apart.  Implemented in the `temper-hid` library,
+`crates/temper-hid/src/protocol.rs` and `crates/temper-hid/src/hidraw.rs`.
 
 ## Sources
 
@@ -14,7 +14,7 @@ the firmware string tells them apart.  Implemented in the `tempered-hid` library
 - ccwienk/temper, `README.md` (commit 60889bf), for the TEMPerHUM's
   case markings.
 - Captures from a `TEMPerGold_V3.5` and a `TEMPerHUM_V4.1` stick, in
-  `crates/tempered-hid/tests/fixtures/temper_gold/` and `temper_hum/`.
+  `crates/temper-hid/tests/fixtures/temper_gold/` and `temper_hum/`.
 
 ## Transport
 

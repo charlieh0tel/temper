@@ -302,9 +302,9 @@ pushes an input report, so IIO buffered mode and triggers get data.
 
 A workspace of two crates, as smartclockmon does:
 
-- `crates/tempered-hid`, a library that only talks to the stick (protocol,
-  discovery, hidraw transport), usable by third parties without the
-  daemon.  thiserror, no anyhow.  Newtypes for units and IDs
+- `crates/temper-hid` (was `tempered-hid`), a library that only
+  talks to the stick (protocol, discovery, hidraw transport), usable
+  by third parties without the daemon.  thiserror, no anyhow.  Newtypes for units and IDs
   (`Celsius`, `RelativeHumidityPercent`, `Firmware`, `Probe`),
   `#[non_exhaustive]` public enums and result structs, documented
   (`missing_docs`).  MIT OR Apache-2.0.  Published to crates.io,
@@ -314,7 +314,7 @@ A workspace of two crates, as smartclockmon does:
   to manage).  Only from CI: a release job with crates.io Trusted
   Publishing (OIDC, `id-token: write`, `rust-lang/crates-io-auth-action`
   pinned by commit SHA, no stored token) runs `cargo publish -p
-  tempered-hid`, gated on the shared workflow's audit job.
+  temper-hid`, gated on the shared workflow's audit job.
 - `crates/tempered-bin`, the one program, `tempered` ("temper
   daemon").  For diagnostics: `tempered read`, `tempered info`, and
   `tempered log`, JSON Lines at a fixed interval, with `time` as

@@ -454,6 +454,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "temper-hid"
+version = "3.0.0"
+dependencies = [
+ "rustix",
+ "thiserror",
+]
+
+[[package]]
 name = "tempered-bin"
 version = "3.0.0"
 dependencies = [
@@ -463,16 +471,8 @@ dependencies = [
  "rustix",
  "serde_json",
  "signal-hook",
- "tempered-hid",
+ "temper-hid",
  "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "tempered-hid"
-version = "3.0.0"
-dependencies = [
- "rustix",
  "thiserror",
 ]
 

@@ -1,4 +1,4 @@
-# tempered-hid
+# temper-hid
 
 Read a PCsensor TEMPerGold USB thermometer or TEMPerHUM thermometer
 and hygrometer (both USB ID 3553:a001) over Linux hidraw: temperature,
@@ -6,7 +6,7 @@ humidity, firmware, probes, calibration and manufacture date.  Linux
 only.
 
 ```rust
-use tempered_hid::protocol::Stick;
+use temper_hid::protocol::Stick;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stick = Stick::find()?;

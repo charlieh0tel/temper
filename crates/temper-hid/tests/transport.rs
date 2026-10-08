@@ -6,12 +6,12 @@ use std::io;
 use std::time::Duration;
 
 use rustix::io::Errno;
-use tempered_hid::protocol::Celsius;
-use tempered_hid::protocol::Error;
-use tempered_hid::protocol::REPORT_LEN;
-use tempered_hid::protocol::Report;
-use tempered_hid::protocol::Stick;
-use tempered_hid::protocol::Transport;
+use temper_hid::protocol::Celsius;
+use temper_hid::protocol::Error;
+use temper_hid::protocol::REPORT_LEN;
+use temper_hid::protocol::Report;
+use temper_hid::protocol::Stick;
+use temper_hid::protocol::Transport;
 
 /// The temperature command's second byte, which its reply echoes first.
 const TEMPERATURE_TAG: u8 = 0x80;
