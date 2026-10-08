@@ -610,16 +610,18 @@ crates/temper-hid/src/
   `rust-build-deb.yml` is called twice, `package: temper-hid-cli` and
   `package: temper-iio` (cargo package names; the deb names come from
   `[package.metadata.deb]`), with `artifact-suffix`.
-- `rust-build-exes.yml` cannot be used as it is: it builds the whole
-  workspace (and `temper-iio` does not build on Windows), runs tests
-  only on Linux, builds Linux targets by default, and names the exe
-  after the target.  So `deb-workflows` gets additive inputs first: a
-  `package` to build, Windows tests (bash shell), and a plain asset
-  name; then its `v1` tag moves.  This repository calls it with the
-  Windows target only, so `temper.exe` is built natively (MSVC,
-  `windows-latest`) with tests on real Windows (hidapi works there with
-  no stick: discovery returns nothing), and attached to the release,
-  marked untested on hardware.
+- `rust-build-exes.yml` could not be used as it was: it built the
+  whole workspace (and `temper-iio` does not build on Windows) and ran
+  tests only on Linux.  So `deb-workflows` got additive inputs,
+  `package`, `artifact-suffix` and `test-windows` (873d0f1, `v1`
+  moved 2026-10-08).  The exe keeps that workflow's naming,
+  `temper-x86_64-pc-windows-msvc.exe`, as in the other repositories;
+  a plain `temper.exe` was dropped.  This repository calls it with
+  `package: temper-hid-cli` and the Windows target only, in CI and on
+  release, so `temper.exe` is built natively (MSVC, `windows-latest`)
+  and its tests run on real Windows (the CLI's; the library's
+  Windows-only helpers run under wine in `make windows-check`), and is
+  attached to the release, marked untested on hardware.
 - Order in `release.yml`: the two deb calls (they share a concurrency
   group), then the exe call (`needs` both, `contents: write`), then
   `notes`, `publish-crate` and `trigger-apt-repo` (`needs` all three).
@@ -679,12 +681,14 @@ crates/temper-hid/src/
    yank `tempered-hid` 3.0.0 and remove its trusted publisher.
    Decided 2026-10-07: get crates.io sorted with the final API first,
    rather than wait for Windows.
+   Released 2026-10-08.
 9. `deb-workflows`: the additive `rust-build-exes.yml` inputs (in that
-   repository).
+   repository).  Done, `v1` moved.
 10. Windows: `windows.rs` over hidapi, cfg gating in `temper-hid` and
     `temper-hid-cli`, `make windows-check`, the exe call in CI and
     release, docs.rs targets.  Released as 1.1.0: the same API on a
-    new platform, so additive.
+    new platform, so additive.  `temper.exe` cross-built here runs
+    under wine; discovery fails there, as expected.
 
 Windows ships untested on hardware, and the 1.1.0 notes say so:
 opening interface 1 while Windows holds the boot keyboard (which can

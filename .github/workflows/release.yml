@@ -53,10 +53,25 @@ jobs:
     permissions:
       contents: write
 
+  # temper.exe, built natively on Windows (MSVC) and attached to the
+  # release as temper-x86_64-pc-windows-msvc.exe.  After the debs, so
+  # the release jobs do not race to create the release.
+  exe:
+    needs: [deb-iio, deb-cli]
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-exes.yml@v1
+    with:
+      package: temper-hid-cli
+      artifact-suffix: temper
+      test-windows: true
+      audit: false
+      targets: '[{"target":"x86_64-pc-windows-msvc","os":"windows-latest","arch":"amd64"}]'
+    permissions:
+      contents: write
+
   # The release's notes are the changelog entry the release commit
   # wrote.
   notes:
-    needs: [deb-iio, deb-cli]
+    needs: [deb-iio, deb-cli, exe]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -79,7 +94,7 @@ jobs:
   # skipped: a new crate's first version is published by hand
   # (RELEASING.md).
   publish-crate:
-    needs: [deb-iio, deb-cli]
+    needs: [deb-iio, deb-cli, exe]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -108,7 +123,7 @@ jobs:
           done
 
   trigger-apt-repo:
-    needs: [deb-iio, deb-cli]
+    needs: [deb-iio, deb-cli, exe]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     steps:

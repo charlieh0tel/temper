@@ -43,6 +43,15 @@ report ID, which usbhid strips, then the command.  Replies are read as
 8-byte reports, waiting up to 500 ms each (ElfThing's read timeout).
 Stale input is drained before every command.
 
+On Windows the same reports go through hidapi's `windows-native`
+backend (`crates/temper-hid/src/hid/windows.rs`): it takes the 0x00
+report ID first on writes as hidraw does, and strips the 0x00 that
+Windows puts before each report it reads.  Discovery uses hidapi's
+device list (bus USB, VID:PID, interface 1), and the Win32 errors
+`ERROR_DEVICE_NOT_CONNECTED`, `ERROR_OPERATION_ABORTED` and
+`ERROR_BAD_COMMAND` are taken as removal.  None of this has been tried
+with a stick.
+
 The first command waits until 1 s after the node is opened, and every
 command is preceded by a 20 ms pause.  ElfThing waits 2 s after
 opening and 20 ms before each write; the shorter settle has worked on

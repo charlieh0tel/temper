@@ -1,9 +1,10 @@
 # temper-hid
 
 Read a PCsensor TEMPerGold USB thermometer or TEMPerHUM thermometer
-and hygrometer (both USB ID 3553:a001) over Linux hidraw: temperature,
-humidity, firmware, probes, calibration and manufacture date.  Linux
-only.
+and hygrometer (both USB ID 3553:a001) on Linux (hidraw) and Windows
+(hidapi): temperature, humidity, firmware, probes, calibration and
+manufacture date.  Windows is built and tested without a stick but
+untried on hardware.
 
 ```rust
 use temper_hid::protocol::Stick;
@@ -19,8 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Reading the stick needs access to its hidraw node.  Other transports
-plug in through `protocol::Transport`.
+On Linux, reading the stick needs access to its hidraw node.  Other
+transports plug in through `protocol::Transport`.
 
 Part of [temper](https://github.com/charlieh0tel/temper),
 which also presents the stick as Linux IIO devices.  The protocol and

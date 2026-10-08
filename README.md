@@ -19,7 +19,10 @@ sudo temper-iio       # IIO devices: /run/temper-iio/temperature, /run/temper-ii
 ```
 
 `read`, `info` and `log` talk to the stick directly; stop the daemon
-first (`systemctl stop 'temper-iio@*'`).
+first (`systemctl stop 'temper-iio@*'`).  `temper` and the
+`temper-hid` library also run on Windows (`temper.exe` on each
+release), untried there on hardware; `make windows-check` builds and
+tests them from Linux.
 
 ## Layout
 

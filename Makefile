@@ -2,7 +2,7 @@
 
 CARGO ?= cargo
 
-.PHONY: all build ci fmt fmt-check clippy test test-hw doc clean deb release release-notes
+.PHONY: all build ci fmt fmt-check clippy test test-hw windows-check doc clean deb release release-notes
 
 all: build
 
@@ -24,6 +24,18 @@ clippy:
 # Everything that runs without root or a stick.
 test:
 	$(CARGO) test --workspace
+
+# The library and the temper CLI for Windows, built from Linux: cross-
+# compiled with mingw-w64, linted, and tested under wine.  Under wine
+# hidapi cannot list devices, so only tests that need no stick run;
+# CI also tests natively on Windows.  Needs the x86_64-pc-windows-gnu
+# target (rustup target add), gcc-mingw-w64-x86-64 and wine.
+WINDOWS_TARGET := x86_64-pc-windows-gnu
+WINDOWS_PACKAGES := -p temper-hid -p temper-hid-cli
+windows-check:
+	$(CARGO) clippy $(WINDOWS_PACKAGES) --all-targets --target $(WINDOWS_TARGET) -- -D warnings
+	CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine \
+	    $(CARGO) test $(WINDOWS_PACKAGES) --target $(WINDOWS_TARGET)
 
 # The root-only tests: the real kernel through /dev/uhid, a fake stick,
 # and the attached stick.  The test binaries run under sudo; the

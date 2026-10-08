@@ -1,3 +1,8 @@
+// The stick is reached through temper_hid::hid, which exists on Linux
+// and Windows.
+#[cfg(not(any(target_os = "linux", windows)))]
+compile_error!("temper runs on Linux and Windows");
+
 mod log;
 
 use std::path::PathBuf;

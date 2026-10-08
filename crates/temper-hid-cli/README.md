@@ -11,7 +11,11 @@ temper log     # JSON Lines: --interval, --count, --time rfc3339|unix
 ```
 
 `--device` picks a stick; without it the only attached one is used.
-Reading a stick needs access to its hidraw node.
+On Linux, reading a stick needs access to its hidraw node.
+
+Runs on Linux and Windows.  Each release on GitHub carries
+`temper-x86_64-pc-windows-msvc.exe`, built and tested on Windows
+without a stick; it is untried on hardware.
 
 Part of [temper](https://github.com/charlieh0tel/temper),
 which also presents the stick as Linux IIO devices.

@@ -19,3 +19,15 @@ jobs:
       fmt-toolchain: ""
       audit: false
       check-args: "--workspace --all-targets"
+
+  windows:
+    # The temper CLI, and through it the library, built and tested
+    # natively on Windows (MSVC).  `make windows-check` does the same
+    # from Linux, cross-built and under wine.  No release here: the
+    # shared workflow releases only on tags.
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-exes.yml@v1
+    with:
+      package: temper-hid-cli
+      test-windows: true
+      audit: false
+      targets: '[{"target":"x86_64-pc-windows-msvc","os":"windows-latest","arch":"amd64"}]'

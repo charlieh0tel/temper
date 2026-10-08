@@ -1,13 +1,13 @@
 //! Read a PCsensor TEMPerGold USB thermometer or TEMPerHUM
-//! thermometer and hygrometer over Linux hidraw.
+//! thermometer and hygrometer, on Linux (hidraw) and Windows.
 //!
 //! [`protocol`] encodes the stick's queries and decodes its replies over
 //! any [`protocol::Transport`]; [`hid`] finds the stick and provides
-//! the transport to it (Linux only, for now); [`schedule`] paces repeated
+//! the transport to it (Linux and Windows); [`schedule`] paces repeated
 //! queries.  `protocol` and `schedule` are portable.
 //!
 //! ```no_run
-//! # #[cfg(target_os = "linux")]
+//! # #[cfg(any(target_os = "linux", windows))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use temper_hid::protocol::Stick;
 //!
@@ -19,13 +19,13 @@
 //! }
 //! # Ok(())
 //! # }
-//! # #[cfg(not(target_os = "linux"))]
+//! # #[cfg(not(any(target_os = "linux", windows)))]
 //! # fn main() {}
 //! ```
 
 #![warn(missing_docs)]
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 pub mod hid;
 pub mod protocol;
 pub mod schedule;

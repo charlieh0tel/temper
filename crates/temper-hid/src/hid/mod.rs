@@ -1,14 +1,19 @@
 //! Finding a stick's data interface and talking to it.  The platform
-//! code is behind a private backend (`backend.rs`); on Linux that is
-//! `/sys/class/hidraw` and the `/dev/hidrawN` node (`linux.rs`).
-//! Everything else is shared: which interfaces are sticks, settling,
-//! and reading to a deadline.
+//! code is behind a private backend (`backend.rs`): on Linux,
+//! `/sys/class/hidraw` and the `/dev/hidrawN` node (`linux.rs`); on
+//! Windows, hidapi (`windows.rs`).  Everything else is shared: which
+//! interfaces are sticks, settling, and reading to a deadline.
 
 mod backend;
+#[cfg(target_os = "linux")]
 mod linux;
+#[cfg(windows)]
+mod windows;
 
 use std::io;
+#[cfg(target_os = "linux")]
 use std::os::fd::AsFd;
+#[cfg(target_os = "linux")]
 use std::os::fd::BorrowedFd;
 use std::path::Path;
 use std::path::PathBuf;
@@ -22,7 +27,10 @@ use self::backend::Candidate;
 use self::backend::ProductId;
 use self::backend::UsbId;
 use self::backend::VendorId;
+#[cfg(target_os = "linux")]
 use self::linux::Node;
+#[cfg(windows)]
+use self::windows::Node;
 use crate::protocol::Report;
 use crate::protocol::Stick;
 use crate::protocol::Transport;
@@ -129,7 +137,8 @@ fn display_paths(paths: &[PathBuf]) -> String {
         .join(" ")
 }
 
-/// An open stick data interface: a `/dev/hidrawN` node on Linux.
+/// An open stick data interface: a `/dev/hidrawN` node on Linux, a HID
+/// device interface on Windows.
 #[derive(Debug)]
 pub struct Device {
     node: Node,
@@ -163,6 +172,7 @@ impl Device {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl AsFd for Device {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.node.as_fd()
@@ -192,7 +202,9 @@ impl Stick<Device> {
 
 /// `Stick<Device>` can move to and be shared with another thread, as the
 /// `temper-iio` daemon does; a change that broke that would fail here.
-/// `Sync` is Linux's: other platforms promise only `Send`.
+/// `Sync` is Linux's: Windows promises only `Send` (hidapi's device is
+/// not `Sync`).
+#[cfg(target_os = "linux")]
 const _: () = {
     const fn send_and_sync<T: Send + Sync>() {}
     send_and_sync::<Stick<Device>>();
@@ -214,6 +226,12 @@ fn receive<B: Backend>(backend: &mut B, timeout: Duration) -> io::Result<Option<
         }
     }
 }
+
+/// `Stick<Device>` can move to another thread on every platform.
+const _: () = {
+    const fn send<T: Send>() {}
+    send::<Stick<Device>>();
+};
 
 impl Transport for Device {
     /// Waits for the stick to settle after opening, and briefly before
