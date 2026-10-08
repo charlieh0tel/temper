@@ -5,7 +5,6 @@ use std::collections::VecDeque;
 use std::io;
 use std::time::Duration;
 
-use rustix::io::Errno;
 use temper_hid::protocol::Celsius;
 use temper_hid::protocol::Error;
 use temper_hid::protocol::REPORT_LEN;
@@ -74,11 +73,11 @@ fn removed_transport_is_gone() {
 
     impl Transport for Unplugged {
         fn send(&mut self, _report: &Report) -> io::Result<()> {
-            Err(Errno::NODEV.into())
+            Err(io::ErrorKind::NotConnected.into())
         }
 
         fn receive(&mut self, _timeout: Duration) -> io::Result<Option<Report>> {
-            Err(Errno::NODEV.into())
+            Err(io::ErrorKind::NotConnected.into())
         }
     }
 

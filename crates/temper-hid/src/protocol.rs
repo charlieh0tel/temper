@@ -13,6 +13,7 @@ use std::iter;
 use std::ops::RangeInclusive;
 use std::time::Duration;
 
+#[cfg(unix)]
 use rustix::io::Errno;
 
 /// Length of every report in either direction.
@@ -170,8 +171,8 @@ pub enum Error {
     #[error("stick I/O")]
     #[non_exhaustive]
     Io(#[source] io::Error),
-    /// The stick was removed.  A [`Transport`] reports this as an
-    /// `ENODEV` I/O error.
+    /// The stick was removed.  A [`Transport`] reports this as an I/O
+    /// error of kind `NotConnected`, or, on Unix, `ENODEV`.
     #[error("stick removed")]
     Gone,
     /// The stick kept sending unrequested reports before this query.
@@ -218,9 +219,20 @@ pub enum Error {
     HumidityOutOfRange(RelativeHumidityPercent),
 }
 
+/// Whether `error` means the device was removed: kind `NotConnected`,
+/// which any platform's transport can produce, or `ENODEV`, which
+/// hidraw writes return (`drivers/hid/hidraw.c`).
+fn is_removal(error: &io::Error) -> bool {
+    #[cfg(unix)]
+    if error.raw_os_error() == Some(Errno::NODEV.raw_os_error()) {
+        return true;
+    }
+    error.kind() == io::ErrorKind::NotConnected
+}
+
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
-        if error.raw_os_error() == Some(Errno::NODEV.raw_os_error()) {
+        if is_removal(&error) {
             Self::Gone
         } else {
             Self::Io(error)
@@ -235,14 +247,16 @@ pub trait Transport {
     ///
     /// # Errors
     ///
-    /// Any I/O error; `ENODEV` if the device was removed.
+    /// Any I/O error; one of kind `NotConnected` (or, on Unix,
+    /// `ENODEV`) if the device was removed.
     fn send(&mut self, report: &Report) -> io::Result<()>;
 
     /// The next report, or `None` if none arrives within `timeout`.
     ///
     /// # Errors
     ///
-    /// Any I/O error; `ENODEV` if the device was removed.
+    /// Any I/O error; one of kind `NotConnected` (or, on Unix,
+    /// `ENODEV`) if the device was removed.
     fn receive(&mut self, timeout: Duration) -> io::Result<Option<Report>>;
 }
 
@@ -773,11 +787,11 @@ mod tests {
 
     impl Transport for Removed {
         fn send(&mut self, _report: &Report) -> io::Result<()> {
-            Err(Errno::NODEV.into())
+            Err(io::ErrorKind::NotConnected.into())
         }
 
         fn receive(&mut self, _timeout: Duration) -> io::Result<Option<Report>> {
-            Err(Errno::NODEV.into())
+            Err(io::ErrorKind::NotConnected.into())
         }
     }
 
@@ -787,10 +801,22 @@ mod tests {
         assert!(matches!(stick.reading(), Err(Error::Gone)));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn enodev_is_gone() {
+        let error = Error::from(io::Error::from(Errno::NODEV));
+        assert!(matches!(error, Error::Gone));
+    }
+
     #[test]
     fn other_io_errors_stay_io() {
-        let error = Error::from(io::Error::from(Errno::IO));
+        let error = Error::from(io::Error::from(io::ErrorKind::TimedOut));
         assert!(matches!(error, Error::Io(_)));
+        #[cfg(unix)]
+        assert!(matches!(
+            Error::from(io::Error::from(Errno::IO)),
+            Error::Io(_)
+        ));
     }
 
     #[test]

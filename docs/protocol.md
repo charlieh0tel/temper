@@ -37,7 +37,9 @@ When the stick is unplugged, hidraw's `poll` reports `POLLHUP` and
 `POLLERR` and `read` fails with `EIO`; `ENODEV` comes only from
 writes (`drivers/hid/hidraw.c`).  The hidraw transport reports the
 hang-up as `ENODEV`, which the protocol layer turns into
-`Error::Gone`.  Interrupted `poll` and `read` calls are retried.
+`Error::Gone`, as it does an I/O error of kind `NotConnected`, the
+portable way for any transport to report a removed device.
+Interrupted `poll` and `read` calls are retried.
 
 ## Commands
 

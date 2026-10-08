@@ -1,6 +1,9 @@
 //! Tests against a real stick.  Need exactly one attached, and root:
 //! `sudo -E cargo test -- --ignored`.
 
+// Discovery and the hidraw transport are Linux only, for now.
+#![cfg(target_os = "linux")]
+
 use temper_hid::protocol::Stick;
 
 #[test]

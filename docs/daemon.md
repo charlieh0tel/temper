@@ -160,7 +160,9 @@ from write and ioctl (`hidraw.c`).  The public `Transport` trait
 returns `io::Result`, so it is not changed: `Hidraw::receive` reports
 hang-up as an `ENODEV` `io::Error`, and the library's `protocol::Error`
 has a `Gone` variant ("the device was removed") that the conversion
-from `io::Error` produces for `ENODEV`, covering the write path too.
+from `io::Error` produces for `ENODEV`, covering the write path too,
+and for kind `NotConnected` (the portable form; `ENODEV` is checked
+on Unix only).
 
 ## Only one HID temperature sensor
 
