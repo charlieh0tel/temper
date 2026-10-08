@@ -386,7 +386,7 @@ no token permissions.
 
 Done: refactor (83e6ab2), library API (a807960), daemon robustness
 (0cfb9be), descriptor (78ecf5e), packaging and release (a3af4ca),
-docs.  Remaining: the release, then yanking 1.0.0.
+docs, the release (3d16e46), and yanking 1.0.0.
 
 ## 3.0.0: TEMPerHUM
 
@@ -417,7 +417,278 @@ bench on 2026-10-07; 2.0.0 refused it cleanly (exit 3).  Decisions:
   temperature descriptor and `in_temp_raw` are unchanged.
 
 Done: refactor (bc21e45), TEMPerHUM support and docs (297e751),
-release.  Remaining: yanking 2.0.0.
+the release (01faf31), and yanking 2.0.0.
+
+## temper 1.0.0: rename, split, Windows (planned)
+
+Goal: the library on Linux and Windows behind one API, a clean
+portable CLI, and the Linux daemon in its own crate, everything built
+and tested from Linux.  Decided 2026-10-07 in interviews, after two
+adversarial reviews (one of an earlier hidapi-everywhere draft, one of
+this plan).
+
+### Names and repository
+
+`tempered` is taken on crates.io by an unrelated crate, and the
+daemon pun no longer fits a project with a separate CLI.  So:
+
+| Crate | Published | Binary | Platforms |
+|---|---|---|---|
+| `temper-hid` (was `tempered-hid`) | crates.io | none | Linux, Windows |
+| `temper-hid-cli` (new, from `tempered-bin`'s `read`, `info`, `log`) | crates.io | `temper` | Linux, Windows |
+| `temper-iio` (was `tempered-bin`'s daemon) | no | `temper-iio` | Linux |
+
+- `temper-cli` is taken on crates.io (a placeholder of an unrelated
+  "temper"; that project holds several `temper-*` names), so the CLI
+  crate is `temper-hid-cli`; its binary is still `temper`.  No
+  placeholders are published early: crates.io discourages squatting,
+  and the real 1.0.0 follows soon.
+- The daemon binary runs only the daemon: options at the top level
+  (`temper-iio --device /dev/hidrawN [--label ...]`), no subcommand,
+  no `read`/`info`/`log` (those are `temper`'s).
+- Two debs: `temper` (the CLI; `Suggests: temper-iio`, which carries
+  the udev rule that grants hidraw access) and `temper-iio` (daemon,
+  unit, udev rules, tmpfiles.d, sleep hook, defaults; `Conflicts:
+  tempered`).
+- System names, all `temper-iio`: unit `temper-iio@`, user
+  `temper-iio`, `/run/temper-iio`, `/run/temper-iio-sleep`,
+  `/etc/default/temper-iio`, `60-temper-iio.rules`, environment
+  `TEMPER_IIO_LABEL`, `TEMPER_IIO_HUMIDITY_LABEL`,
+  `TEMPER_IIO_INTERVAL`, `TEMPER_IIO_HOLD`, the uhid device's
+  `HID_PHYS` `temper-iio`.  For 1.0.0 a leftover sensor with
+  `HID_PHYS=tempered` (from the old daemon) also counts as the daemon's
+  own, so the swap cannot exit 3; dropped in a later release.  Test
+  variables follow (`TEMPER_IIO_TWO_SENSORS`).
+- Versions restart at 1.0.0 for all three.  New repository
+  `charlieh0tel/temper` with this history but without the `v1.0.0` to
+  `v3.0.0` tags, which would collide; the local clone deletes those
+  tags and points `origin` at the new repository, or `make release
+  VERSION=1.0.0` refuses and every build stamps `3.0.0+git...`.  The
+  old repository `charlieh0tel/tempered-hid` is archived with a README
+  pointing to the new one (archiving keeps its release assets and
+  crates.io links working).  `tempered-hid` 3.0.0 is yanked once
+  `temper-hid` 1.0.0 is out, and its trusted publisher removed.
+
+### Shared code
+
+- `Schedule` (fixed-interval, non-drifting; `temper log` and the
+  daemon's poll) moves into `temper-hid` as a public `schedule` module,
+  made safe: the interval is non-zero, so it cannot divide by zero, and
+  slots count in u64.  The 1 s minimum poll interval moves there too,
+  as a constant: it is the stick's ("slow to answer").
+- The version stamp's `build.rs` lives in `temper-hid-cli` (a
+  published crate may only use files inside itself); `temper-iio`
+  points at it (`build = "../temper-hid-cli/build.rs"`).  Built from
+  crates.io, with no git, it falls back to the crate version, as now.
+  The variable becomes `TEMPER_VERSION`.
+- The duration parsers (`10s`, `1m`; about ten lines over `jiff`) are
+  duplicated in the two binaries, the one accepted copy: the
+  alternatives were a third published crate or a public library
+  target in the CLI crate.
+
+### Migration from `tempered`
+
+A clean break, by hand, on the one machine that has it (this one):
+check `/etc/default/tempered` and port any `TEMPERED_*` settings to
+`TEMPER_IIO_*` in `/etc/default/temper-iio`; `apt install temper
+temper-iio` (which removes `tempered`: its prerm stops `tempered@*`);
+`apt purge tempered` (locks its account, drops its conffile); readers
+move from `/run/tempered` to `/run/temper-iio`.  On this machine the
+defaults file is stock and smartclock-sensord does not read
+`/run/tempered`.  No transitional package: it would need a version
+above `tempered` 3.0.0-1, against the restart at 1.0.0.  `/run`
+leftovers go at the next reboot.
+
+### Transport: native on Linux, hidapi on Windows
+
+Linux keeps the library's own hidraw code (sysfs discovery, `poll(2)`
+with a deadline, `EINTR` retries, hang-up as removal).  Windows uses
+the `hidapi` crate (2.6.7), `default-features = false`, feature
+`windows-native` (pure Rust over `windows-sys`; its `build.rs` compiles
+nothing for it), as a Windows-only dependency.
+
+Rejected: hidapi on both (`linux-native-basic-udev`), reviewed
+adversarially and reconsidered, 2026-10-07.  It would have deleted
+the sysfs code, but:
+
+- hidapi allows one Linux backend per dependency graph (`build.rs:102-106`;
+  cargo unifies features), so any dependent also using hidapi's
+  default backend fails to build without a feature dance.
+- Parity with today's Linux transport would have to be rebuilt on top
+  of it: hang-up arrives as a message string, not `ENODEV`;
+  interrupted polls and early empty reads are not retried; open errors
+  lose their `io::ErrorKind`; enumeration errors are swallowed
+  (`linux_native.rs:46-54`), which cannot be fixed; each context scans
+  sysfs (about 30 ms, 2000 opens here).
+- The supposed gain, Linux hardware testing the Windows path, is
+  small: what is shared is a thin, deterministic wrapper that a fake
+  backend tests as well, and what is risky on Windows (pending
+  overlapped reads, the 1 s write timeout, Win32 removal codes,
+  interface numbers from the path, opening interface 1 beside the
+  keyboard) lives in hidapi's Windows backend, which no Linux test
+  touches.
+- The daemon, the part that runs in production, would change
+  transport for no benefit.
+
+Checked against hidapi 2.6.7 and this bench (spike and review): it
+builds without C for x86_64-pc-windows-gnu with mingw-w64, with
+1.98.1 and the workspace MSRV 1.89; `HidDevice` is `Send`, not
+`Sync`; the Windows backend strips the 0x00 report ID Windows
+prepends to reads and pads writes; several contexts may coexist,
+each enumerating every device.
+
+Interface 1's descriptor on the TEMPerHUM is `05 01 09 00 a1 01 09 01
+15 00 25 ff 95 08 75 08 81 02 09 01 91 02 c0`: Generic Desktop, usage 0,
+not vendor page 0xFF00 as `docs/protocol.md` says (and the root tests'
+fake stick copies).  Not yet captured on the TEMPerGold.  Discovery
+matches bus USB, VID:PID and interface 1, never the usage page.
+
+### Code structure
+
+So two backends stay small and cannot drift, the platform code sits
+behind one private trait, and everything else is shared:
+
+```
+crates/temper-hid/src/
+  protocol.rs        unchanged but for removal mapping (below)
+  hid/mod.rs         public API and shared logic
+  hid/backend.rs     the private Backend trait and Candidate
+  hid/linux.rs       #[cfg(target_os = "linux")]: today's hidraw code
+  hid/windows.rs     #[cfg(windows)]: hidapi
+```
+
+- `Backend` (private): `enumerate() -> io::Result<Vec<Candidate>>`;
+  `open(&Path) -> io::Result<Self>`; `write(&mut self, &Report)`
+  (report ID 0 first, all of it or an error); `read(&mut self,
+  Option<Duration>) -> io::Result<Option<Report>>`, one wait that may
+  return early with `None` or `Interrupted`, removal as
+  `NotConnected`.  `Send`.  One implementation per target, chosen by
+  cfg; a fake implements it in the unit tests.
+- `Candidate`: what discovery needs from either platform: path, bus,
+  vendor and product ID, interface number.  Linux fills it from the
+  hidraw parent's `uevent` (`HID_ID`, interface from `HID_PHYS`),
+  Windows from hidapi's `DeviceInfo`.
+- Shared in `hid/mod.rs`, unit-tested with the fake backend: the
+  stick filter (bus USB, 3553:a001, interface 1), sorting and
+  deduplication (hidapi lists a path once per top-level usage),
+  `find`'s `NotFound`/`Several`, the read loop to a deadline (retrying
+  early returns and `Interrupted`), the 1 s settle and 20 ms pause.
+- Platform-only in each backend: Linux sysfs parsing, `poll`, hang-up
+  to `NotConnected`; Windows path validation (UTF-8, no NUL, where
+  hidapi would panic: `windows_native/mod.rs:415`), `Duration` to
+  milliseconds rounding up with no limit as -1, the write count quirk
+  (0 on synchronous completion, `windows_native/mod.rs:153-155`), and
+  Win32 removal codes (`ERROR_DEVICE_NOT_CONNECTED`, likely
+  `ERROR_OPERATION_ABORTED` and `ERROR_BAD_COMMAND`) to
+  `NotConnected`, unverified without hardware.
+- On other targets only `protocol` is built.
+
+### API (module `hidraw` becomes `hid`)
+
+- `hid::Device`: an open stick, implementing `protocol::Transport`;
+  `Device::open(&Path)`, `Device::path()`.  `Send` everywhere;
+  `Sync` and `AsFd` on Linux only (platform extras, documented).
+- `hid::discover() -> Result<Vec<PathBuf>, hid::Error>`, sorted and
+  deduplicated; `/dev/hidrawN` on Linux, device interface paths on
+  Windows.
+- `Stick::open(&Path)`, `Stick::find()` as now.
+- `hid::Error`: `Enumerate { source }` (was `Scan`), `Open { path,
+  source }`, `NotFound`, `Several`; sources are `io::Error`, so hidapi
+  types stay out of the API.
+- `VENDOR_ID`, `PRODUCT_ID` stay.
+- Removal: both backends report `io::ErrorKind::NotConnected`;
+  `protocol::Error::Gone` maps from it, and from `ENODEV` on Unix for
+  existing third-party transports.  A replug that keeps the path (a
+  udev symlink, a Windows interface path) is `Gone` for the open
+  device; the caller reopens.
+
+### Cross-building, CI and release
+
+- Everything builds from Linux: `make windows-check` cross-builds
+  `temper-hid` and `temper-hid-cli` for `x86_64-pc-windows-gnu` with
+  mingw-w64, runs clippy, and runs their tests under wine.  Under wine
+  `HidApi::new()` fails (`WinError: Config(19)`, wine 9.0), so only the
+  portable tests and the Windows backend's pure helpers run there.
+  The target is installed where needed, not in `rust-toolchain.toml`.
+- CI and release use the shared workflows, as the other repos do.
+  `rust-build-deb.yml` is called twice, `package: temper-hid-cli` and
+  `package: temper-iio` (cargo package names; the deb names come from
+  `[package.metadata.deb]`), with `artifact-suffix`.
+- `rust-build-exes.yml` cannot be used as it is: it builds the whole
+  workspace (and `temper-iio` does not build on Windows), runs tests
+  only on Linux, builds Linux targets by default, and names the exe
+  after the target.  So `deb-workflows` gets additive inputs first: a
+  `package` to build, Windows tests (bash shell), and a plain asset
+  name; then its `v1` tag moves.  This repository calls it with the
+  Windows target only, so `temper.exe` is built natively (MSVC,
+  `windows-latest`) with tests on real Windows (hidapi works there with
+  no stick: discovery returns nothing), and attached to the release,
+  marked untested on hardware.
+- Order in `release.yml`: the two deb calls (they share a concurrency
+  group), then the exe call (`needs` both, `contents: write`), then
+  `notes`, `publish-crate` and `trigger-apt-repo` (`needs` all three).
+  The audit runs in one call only.  This relies on GitHub releases
+  staying mutable.
+- `publish-crate` publishes `temper-hid`, then `temper-hid-cli`.  Both
+  are new crates, so 1.0.0 of each is published by hand first (from
+  the release commit, before the tag is pushed), then the trusted
+  publishers are set (repository `charlieh0tel/temper`, `release.yml`);
+  the job skips a version that already exists, so the first tag's run
+  stays green.
+- apt repository: one row for `charlieh0tel/temper` listing both
+  packages (its `build-site.sh` downloads every deb of a repository's
+  latest release; two rows would fetch twice), added before the new
+  repository's `APT_REPO_TOKEN` is set; the `tempered` row goes once
+  the new release exists.
+- One Debian changelog, `packaging/debian/changelog`, headed `temper
+  (1.0.0-1)`, serves both debs (a binary package's changelog names its
+  source package), so `make release`, the version check and
+  `release-notes.sh` stay as they are.  It starts fresh, pointing to
+  the old repository for earlier history (keeping the `tempered`
+  entries would make `release-notes.sh` link `v3.0.0...v1.0.0`).
+  Checked with lintian on both debs.
+- docs.rs: add `x86_64-pc-windows-msvc` for both published crates.
+- Licensing: hidapi is MIT (its crate bundles C hidapi sources, unused
+  here); `windows-sys` MIT OR Apache-2.0.
+
+### Steps, one commit each, tests passing at each
+
+1. Rename the library `tempered-hid` to `temper-hid` (code only).
+2. Split `tempered-bin` into `temper-hid-cli` and `temper-iio`;
+   `Schedule` and the minimum interval into `temper-hid`; the shared
+   `build.rs`; the daemon loses its subcommand.
+3. Packaging and system names (both debs, the shared changelog,
+   `HID_PHYS` with the legacy alias), CI and release workflows,
+   Makefile, and every doc: README, crate READMEs, RELEASING.md,
+   AGENTS.md, `docs/`, the unit's `Documentation=`, Cargo
+   `repository`, the root tests' binary path and arguments, the test
+   guard's hint, `TEMPER_IIO_TWO_SENSORS`.  `make test-hw` and lintian
+   pass.
+4. Create `charlieh0tel/temper`, push `main` without tags, delete the
+   local old tags and repoint `origin`; apt repository row; set
+   `APT_REPO_TOKEN`; archive the old repository with a pointer.
+5. Refactor: removal portability (`Gone` also from `NotConnected`;
+   `ENODEV` and `rustix` gated to Unix), and the descriptor fix in
+   `docs/protocol.md` and the fake stick (TEMPerGold descriptor
+   captured first).
+6. Refactor: split `hidraw.rs` into the `hid` layout (still `hidraw`,
+   still Linux-only), with the fake-backend tests; `make test-hw`
+   passes.
+7. API: `hidraw` to `hid`, `Hidraw` to `Device`, `Scan` to `Enumerate`;
+   the Linux backend reports removal as `NotConnected`.
+8. `deb-workflows`: the additive `rust-build-exes.yml` inputs (in that
+   repository).
+9. Windows: `windows.rs` over hidapi, cfg gating in `temper-hid` and
+   `temper-hid-cli`, `make windows-check`, the exe call in CI and
+   release, docs.rs targets.
+10. Release 1.0.0: hand-publish both crates, set trusted publishers,
+    push the tag; swap `tempered` for `temper-iio` here; yank
+    `tempered-hid` 3.0.0.
+
+Windows ships untested on hardware, and the 1.0.0 notes say so:
+opening interface 1 while Windows holds the boot keyboard (which can
+type readings; Windows has no equivalent of our udev rule), the
+timing, and the removal codes are unverified.
 
 ## Phases
 
