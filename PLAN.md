@@ -671,17 +671,22 @@ crates/temper-hid/src/
    still Linux-only), with the fake-backend tests; `make test-hw`
    passes.
 7. API: `hidraw` to `hid`, `Hidraw` to `Device`, `Scan` to `Enumerate`;
-   the Linux backend reports removal as `NotConnected`.
-8. `deb-workflows`: the additive `rust-build-exes.yml` inputs (in that
+   the Linux backend reports removal as `NotConnected`.  The API is
+   then final.
+8. Release 1.0.0, Linux only: hand-publish `temper-hid`, then
+   `temper-hid-cli`, from the release commit; set their trusted
+   publishers; push the tag; install `temper` and `temper-iio` here;
+   yank `tempered-hid` 3.0.0 and remove its trusted publisher.
+   Decided 2026-10-07: get crates.io sorted with the final API first,
+   rather than wait for Windows.
+9. `deb-workflows`: the additive `rust-build-exes.yml` inputs (in that
    repository).
-9. Windows: `windows.rs` over hidapi, cfg gating in `temper-hid` and
-   `temper-hid-cli`, `make windows-check`, the exe call in CI and
-   release, docs.rs targets.
-10. Release 1.0.0: hand-publish both crates, set trusted publishers,
-    push the tag; install `temper` and `temper-iio` here; yank
-    `tempered-hid` 3.0.0.
+10. Windows: `windows.rs` over hidapi, cfg gating in `temper-hid` and
+    `temper-hid-cli`, `make windows-check`, the exe call in CI and
+    release, docs.rs targets.  Released as 1.1.0: the same API on a
+    new platform, so additive.
 
-Windows ships untested on hardware, and the 1.0.0 notes say so:
+Windows ships untested on hardware, and the 1.1.0 notes say so:
 opening interface 1 while Windows holds the boot keyboard (which can
 type readings; Windows has no equivalent of our udev rule), the
 timing, and the removal codes are unverified.
