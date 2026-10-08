@@ -14,7 +14,8 @@ bookworm and Ubuntu 22.04 do not.
 
 | Source | Installed as | Does |
 |---|---|---|
-| `packaging/udev/60-temper-iio.rules` | `/usr/lib/udev/rules.d/` | Gives the stick's data interface to group `temper-iio`, starts `temper-iio@hidrawN`, and deauthorizes the stick's keyboard interface |
+| `packaging/udev/60-temper.rules` (package `temper`) | `/usr/lib/udev/rules.d/` | Gives the stick's data interface to group `temper` and to the user at the seat (`uaccess`), and deauthorizes the stick's keyboard interface |
+| `packaging/udev/60-temper-iio.rules` | `/usr/lib/udev/rules.d/` | Starts `temper-iio@hidrawN` |
 | `packaging/systemd/temper-iio@.service` | `/usr/lib/systemd/system/` | Runs `temper-iio` for one stick; started by udev, not enabled |
 | `packaging/systemd/temper-iio.default` | `/etc/default/temper-iio` | `TEMPER_IIO_LABEL`, `TEMPER_IIO_HUMIDITY_LABEL`, `TEMPER_IIO_INTERVAL`, `TEMPER_IIO_HOLD` |
 | `packaging/tmpfiles.d/temper-iio.conf` | `/usr/lib/tmpfiles.d/` | Creates `/run/temper-iio` at boot |
@@ -23,9 +24,10 @@ bookworm and Ubuntu 22.04 do not.
 ## Installing by hand
 
 ```
+sudo addgroup --system temper
 sudo adduser --system --group --no-create-home temper-iio
 sudo install -m 755 target/release/temper target/release/temper-iio /usr/bin/
-sudo install -m 644 packaging/udev/60-temper-iio.rules /usr/lib/udev/rules.d/
+sudo install -m 644 packaging/udev/60-temper.rules packaging/udev/60-temper-iio.rules /usr/lib/udev/rules.d/
 sudo install -m 644 packaging/systemd/temper-iio@.service /usr/lib/systemd/system/
 sudo install -m 644 packaging/systemd/temper-iio.default /etc/default/temper-iio
 sudo install -m 644 packaging/tmpfiles.d/temper-iio.conf /usr/lib/tmpfiles.d/
@@ -37,13 +39,14 @@ sudo udevadm trigger --action=add --settle --parent-match=/sys/bus/usb/devices/3
 sudo systemctl start temper-iio@hidrawN    # the stick's node, as udev would
 ```
 
-The order matters: the group must exist before udev reloads its
+The order matters: group `temper` must exist before udev reloads its
 rules, since udev resolves `GROUP=` names when it reads them, and
 `/run/temper-iio` must exist before the unit starts, since
 `ReadWritePaths=` fails on a missing directory.
 
-The package's `postinst` does the same, starting the daemon for each
-stick already plugged in; removing the package stops it, and purging
+The packages' `postinst` scripts do the same, `temper`'s creating the
+group and applying its rule, `temper-iio`'s starting the daemon for
+each stick already plugged in; removing the package stops it, and purging
 it locks the `temper-iio` account rather than deleting it, as Debian does
 with system accounts.  The suspend hook restarts only the daemons
 whose stick is still present, without blocking resume.

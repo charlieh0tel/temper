@@ -1,0 +1,13 @@
+#!/bin/sh
+# Forgets the udev rules on remove.  Group temper is kept on purge, as
+# Debian keeps system groups: a deleted GID could be reused and inherit
+# what still names it, such as a hidraw node's group until replug.
+set -e
+
+case "$1" in
+remove | purge)
+    udevadm control --reload || true
+    ;;
+esac
+
+exit 0

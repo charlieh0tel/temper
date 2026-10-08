@@ -46,7 +46,8 @@ udev starts it when the stick is plugged in."""
 section = "utils"
 priority = "optional"
 # systemd 253 for OpenFile= in the unit.
-depends = "$auto, adduser, systemd (>= 253)"
+# temper for the udev rule and group that give access to the stick.
+depends = "$auto, adduser, systemd (>= 253), temper"
 assets = [
     ["target/release/temper-iio", "usr/bin/", "755"],
     ["../../packaging/udev/60-temper-iio.rules", "usr/lib/udev/rules.d/60-temper-iio.rules", "644"],
@@ -60,7 +61,7 @@ assets = [
     ["../../docs/protocol.md", "usr/share/doc/temper-iio/protocol.md", "644"],
 ]
 conf-files = ["/etc/default/temper-iio"]
-maintainer-scripts = "../../packaging/debian/"
+maintainer-scripts = "../../packaging/debian/temper-iio/"
 changelog = "../../packaging/debian/changelog"
 # No systemd-units: the unit is a template that udev starts per stick,
 # installed as a plain asset above; the maintainer scripts do the rest.

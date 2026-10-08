@@ -1,25 +1,13 @@
-# PCsensor TEMPerGold and TEMPerHUM (both 3553:a001).  See
-# docs/running.md.
+# Starts temper-iio@hidrawN for each PCsensor TEMPerGold or TEMPerHUM
+# data interface; the unit BindsTo= the device, so an unplug stops it.
+# Access to the stick, and the keyboard's deauthorization, come from
+# the temper package's 60-temper.rules.  See docs/running.md.
 
-# The data interface (USB interface 1): readable by the temper-iio
-# group, and starts temper-iio@hidrawN, which BindsTo= the device so an
-# unplug stops it.  usb_id supplies the IDs and interface number from
-# the USB ancestors; ATTRS{} keys cannot, since all of a rule's parent
-# keys must match one ancestor, and the interface number and the IDs
-# live on different ones.  Requiring a USB parent keeps out the virtual
-# sensor temper-iio creates, which has the same IDs on BUS_VIRTUAL.
+# usb_id supplies the IDs and interface number; a USB parent keeps out
+# the virtual sensor temper-iio itself creates (60-temper.rules).
 ACTION!="remove", SUBSYSTEM=="hidraw", SUBSYSTEMS=="usb", \
   IMPORT{builtin}="usb_id"
 ACTION!="remove", SUBSYSTEM=="hidraw", ENV{ID_BUS}=="usb", \
   ENV{ID_VENDOR_ID}=="3553", ENV{ID_MODEL_ID}=="a001", \
   ENV{ID_USB_INTERFACE_NUM}=="01", \
-  GROUP="temper-iio", MODE="0660", \
   TAG+="systemd", ENV{SYSTEMD_WANTS}+="temper-iio@%k.service"
-
-# The boot keyboard (USB interface 0), which can type readings into a
-# console when CapsLock or NumLock toggles: deauthorized, so the host
-# unbinds it and never binds it again.
-ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", \
-  ATTR{bInterfaceNumber}=="00", \
-  ATTRS{idVendor}=="3553", ATTRS{idProduct}=="a001", \
-  ATTR{authorized}="0"

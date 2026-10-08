@@ -1,9 +1,9 @@
 #!/bin/sh
 # Creates the service account and /run/temper-iio, applies the udev rules
-# to sticks already plugged in, and starts their daemons.  The order
-# matters: udev resolves GROUP= names when it reads rules, so the group
-# comes first, and the unit's ReadWritePaths= needs /run/temper-iio before
-# it starts.  See docs/running.md.
+# to sticks already plugged in, and starts their daemons.  The unit's
+# ReadWritePaths= needs /run/temper-iio before it starts.  Access to the
+# stick (group temper) comes from the temper package.  See
+# docs/running.md.
 set -e
 
 case "$1" in
@@ -17,8 +17,7 @@ configure)
     # The basename, so an override in /etc/tmpfiles.d wins.
     systemd-tmpfiles --create temper-iio.conf || true
     udevadm control --reload || true
-    # Re-add each stick and its interfaces: that deauthorizes the
-    # keyboard and gives the data interface its group.
+    # Re-add each stick, so udev tags its data interface for systemd.
     for stick in /sys/bus/usb/devices/*; do
         if [ "$(cat "$stick/idVendor" 2>/dev/null)" = 3553 ] &&
             [ "$(cat "$stick/idProduct" 2>/dev/null)" = a001 ]; then

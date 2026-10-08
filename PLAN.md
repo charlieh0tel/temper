@@ -293,6 +293,20 @@ test with the patched modules (`two_sensors_survive_a_destroy` in
 enrollment for Secure Boot.  7.3 already fixes the temperature
 driver's remove order (967d066f5334).
 
+### Access to the stick
+
+The `temper` package owns the stick's udev rule, `60-temper.rules`:
+the data interface goes to group `temper` (mode 0660) and to the user
+at the seat (`TAG+="uaccess"`, which systemd-logind turns into an ACL),
+and the keyboard interface is deauthorized.  Programs that read the
+stick as services join the group: `temper-iio` with
+`SupplementaryGroups=temper` (it depends on `temper`), and
+smartclock-sensord, which is to read sticks directly through
+`temper-hid` rather than through IIO (decided 2026-10-08), the same
+way.  `temper-iio` keeps only the rule that starts its unit, and is
+unchanged otherwise.  Before 1.3.0 the rule was `temper-iio`'s, with
+group `temper-iio`, so the CLI alone left the node root-only.
+
 ### One process per stick
 
 hidraw hands every input report to every reader, so `temper` run

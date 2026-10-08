@@ -11,7 +11,11 @@ temper log     # JSON Lines: --interval, --count, --time rfc3339|unix
 ```
 
 `--device` picks a stick; without it the only attached one is used.
-On Linux, reading a stick needs access to its hidraw node.
+On Linux, reading a stick needs access to its hidraw node.  The
+`temper` deb's udev rule gives it to group `temper` and to the user
+logged in at the seat; others join the group (`usermod -aG temper`).
+A program that reads the stick as a service, such as
+smartclock-sensord, runs with `SupplementaryGroups=temper`.
 
 Runs on Linux and Windows.  Each release on GitHub carries
 `temper-x86_64-pc-windows-msvc.exe`, built and tested on Windows

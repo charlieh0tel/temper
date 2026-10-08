@@ -29,6 +29,8 @@ RestartPreventExitStatus=2 3
 
 User=temper-iio
 Group=temper-iio
+# Access to the stick's hidraw node (the temper package's udev rule).
+SupplementaryGroups=temper
 
 # /run/temper-iio comes from tmpfiles.d (temper-iio.conf), so it outlives
 # any one instance.

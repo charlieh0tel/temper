@@ -34,13 +34,15 @@ extended-description = """\
 temper reads a PCsensor TEMPerGold USB thermometer or a TEMPerHUM \
 thermometer and hygrometer over hidraw: the reading, what the stick \
 reports about itself, and a JSON Lines log.  Access to the stick's \
-hidraw node comes from the udev rule in temper-iio."""
+hidraw node is given to group temper and to the user at the seat."""
 section = "utils"
 priority = "optional"
-depends = "$auto"
+depends = "$auto, adduser"
 suggests = "temper-iio"
 assets = [
     ["target/release/temper", "usr/bin/", "755"],
+    ["../../packaging/udev/60-temper.rules", "usr/lib/udev/rules.d/60-temper.rules", "644"],
     ["README.md", "usr/share/doc/temper/README.md", "644"],
 ]
 changelog = "../../packaging/debian/changelog"
+maintainer-scripts = "../../packaging/debian/temper/"

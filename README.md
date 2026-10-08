@@ -19,7 +19,10 @@ sudo temper-iio       # IIO devices: /run/temper-iio/temperature, /run/temper-ii
 ```
 
 `read`, `info` and `log` talk to the stick directly; stop the daemon
-first (`systemctl stop 'temper-iio@*'`).  The two lock the stick, so
+first (`systemctl stop 'temper-iio@*'`).  The `temper` package's udev
+rule gives the stick to group `temper` and to the user at the seat, so
+`sudo` is needed only for others; services such as smartclock-sensord
+add `SupplementaryGroups=temper`.  The two lock the stick, so
 `temper` says so if the daemon has it.  `temper` and the
 `temper-hid` library also run on Windows (`temper.exe` on each
 release), untried there on hardware; `make windows-check` builds and
