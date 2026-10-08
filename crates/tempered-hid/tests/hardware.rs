@@ -4,15 +4,10 @@
 use tempered_hid::protocol::Stick;
 
 #[test]
-#[ignore = "needs a TEMPerGold and root"]
+#[ignore = "needs a TEMPerGold or TEMPerHUM, and root"]
 fn reads_attached_stick() {
     let mut stick = Stick::find().unwrap();
-    assert!(
-        stick
-            .firmware()
-            .unwrap()
-            .as_str()
-            .starts_with("TEMPerGold_")
-    );
-    stick.temperature().unwrap();
+    let model = stick.firmware().unwrap().model().unwrap();
+    let reading = stick.reading().unwrap();
+    assert_eq!(reading.humidity.is_some(), model.has_humidity());
 }

@@ -1,6 +1,6 @@
 [package]
 name = "tempered-bin"
-description = "Read a PCsensor TEMPerGold USB thermometer and present it as a Linux IIO device"
+description = "Read a PCsensor TEMPerGold or TEMPerHUM USB stick and present it as Linux IIO devices"
 license = "GPL-3.0-or-later"
 publish = false
 version.workspace = true
@@ -36,10 +36,11 @@ name = "tempered"
 maintainer = "Christopher Hoover <ch@murgatroid.com>"
 copyright = "2026, Christopher Hoover"
 extended-description = """\
-Presents a PCsensor TEMPerGold USB thermometer as a Linux IIO device. \
-The tempered daemon reads the stick over hidraw and creates a virtual \
-HID sensor through /dev/uhid, which the kernel's HID sensor drivers \
-turn into an ordinary iio:deviceN, linked as /run/tempered/<label>. \
+Presents a PCsensor TEMPerGold USB thermometer, or a TEMPerHUM \
+thermometer and hygrometer, as Linux IIO devices.  The tempered daemon \
+reads the stick over hidraw and creates a virtual HID sensor through \
+/dev/uhid, which the kernel's HID sensor drivers turn into ordinary \
+iio:deviceN entries, linked as /run/tempered/<label>. \
 udev starts it when the stick is plugged in."""
 section = "utils"
 priority = "optional"

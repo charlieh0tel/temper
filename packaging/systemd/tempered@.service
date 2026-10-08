@@ -1,9 +1,9 @@
 [Unit]
-Description=TEMPerGold thermometer on /dev/%I as an IIO device
+Description=TEMPer stick on /dev/%I as IIO devices
 Documentation=https://github.com/charlieh0tel/tempered-hid
 # Started by udev for each stick's data interface (60-tempered.rules),
 # not enabled.  BindsTo= stops it when the stick is unplugged.  The
-# IIO device is linked as /run/tempered/<label>; settings are in
+# IIO devices are linked under /run/tempered; settings are in
 # /etc/default/tempered.  See docs/running.md and docs/daemon.md.
 BindsTo=dev-%i.device
 After=dev-%i.device
@@ -21,8 +21,8 @@ ExecStart=/usr/bin/tempered --device /dev/%I daemon
 OpenFile=/dev/uhid:uhid
 WatchdogSec=60s
 # 2 is a configuration error and 3 a device that cannot be presented
-# (unsupported firmware, another HID temperature sensor, or no IIO
-# device); retrying fixes neither.  1 is a runtime failure and is retried.
+# (unsupported firmware, another HID temperature or humidity sensor,
+# or no IIO devices); retrying fixes neither.  1 is a runtime failure and is retried.
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=2 3

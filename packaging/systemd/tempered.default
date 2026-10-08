@@ -1,7 +1,10 @@
 # Settings for tempered@.service; see `tempered daemon --help`.
 
-# Name of the link to the IIO device: /run/tempered/<label>.
+# Name of the link to the temperature IIO device: /run/tempered/<label>.
 #TEMPERED_LABEL=temperature
+
+# Name of the link to the humidity IIO device, for a TEMPerHUM.
+#TEMPERED_HUMIDITY_LABEL=humidity
 
 # Time between readings, at least 1s.
 #TEMPERED_INTERVAL=10s

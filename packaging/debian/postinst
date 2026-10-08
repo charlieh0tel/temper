@@ -11,7 +11,7 @@ configure)
     if ! getent passwd tempered >/dev/null; then
         adduser --system --group --no-create-home \
             --home /nonexistent \
-            --gecos "TEMPerGold IIO daemon" \
+            --gecos "TEMPer IIO daemon" \
             tempered
     fi
     # The basename, so an override in /etc/tmpfiles.d wins.

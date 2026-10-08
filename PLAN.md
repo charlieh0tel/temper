@@ -2,8 +2,8 @@
 
 ## Goal
 
-Read a PCsensor TEMPerGold USB thermometer and present it as a real
-Linux IIO device, so stock IIO consumers (libiio, `iio_info`,
+Read a PCsensor TEMPerGold USB thermometer, or a TEMPerHUM
+thermometer and hygrometer, and present it as real Linux IIO devices, so stock IIO consumers (libiio, `iio_info`,
 smartclock-sensord) read it without knowing about the thermometer.  Shipped
 as a Debian package with a systemd unit and udev rules.
 
@@ -104,12 +104,16 @@ From `drivers/iio/common/hid-sensors/hid-sensor-attributes.c`,
   hid-sensor-custom; it is not included.
 
 As built (`crates/tempered-bin/src/sensor.rs`): one application
-collection, usage 0x200033, with report ID 1 for both a feature report
+collection per quantity, temperature (usage 0x200033, report ID 1)
+and, on a TEMPerHUM, humidity (usage 0x200032 with data field
+0x200433, report ID 2; `hid-sensor-humidity` has the same Unit 0 scale
+row and 32-bit buffered samples).  Each has its report ID for both a
+feature report
 (Reporting State and Power State as 1-based named arrays in logical
 collections, Report Interval u32 with Logical Maximum 2^31 - 1, since
 the item is signed; Change Sensitivity Absolute u16; 9 bytes with the
-ID) and an input report (temperature as 32 bits, though its values
-fit 16, because the driver's buffered path reads every sample as 32
+ID) and an input report (the value as 32 bits, though its values
+fit 16, because the drivers' buffered path reads every sample as 32
 bits; 5 bytes).
 Reporting State lists only the No Events and All Events selectors the
 kernel defines.  No Sensor State or Event fields: the Linux drivers do
@@ -199,7 +203,9 @@ firmware node, which a uhid-created device lacks, and
 
 So the daemon links its IIO device as `/run/tempered/<label>`; readers
 use `/run/tempered/<label>/in_temp_raw` and friends.  The label is set
-by `TEMPERED_LABEL` in `/etc/default/tempered`, default `temperature`,
+by `TEMPERED_LABEL` in `/etc/default/tempered`, default `temperature`
+(and a TEMPerHUM's humidity device by `TEMPERED_HUMIDITY_LABEL`,
+default `humidity`),
 one value for all sticks: the stick has no serial number, and the
 port path is too fragile to key on.  Only one stick is expected, so
 there are no suffixes: each instance holds an `flock` on
@@ -268,8 +274,11 @@ before the service runs.
 
 The kernel's `hid-sensor-temperature` mishandles two instances and
 can oops when one is removed (static callbacks; see `docs/daemon.md`,
-"Only one HID temperature sensor").  The daemon refuses to create its
-sensor while another exists (exit 3), the label lock keeps a replug
+"Only one HID temperature sensor"); `hid-sensor-humidity` too.  So
+one stick at a time: several sticks are not supported until the
+kernel fix lands, and there is no override flag (considered and
+dropped, 2026-10-07).  The daemon refuses to create its sensors while
+another of either kind exists (exit 3), the label lock keeps a replug
 from overlapping, and the root tests serialize (and refuse to run
 while any HID temperature sensor exists, such as a running
 `tempered@`: running them beside the service oopsed the kernel and
@@ -296,7 +305,7 @@ A workspace of two crates, as smartclockmon does:
 - `crates/tempered-hid`, a library that only talks to the stick (protocol,
   discovery, hidraw transport), usable by third parties without the
   daemon.  thiserror, no anyhow.  Newtypes for units and IDs
-  (`CentiCelsius`, `DeciCelsius`, `DeciPercent`, `Firmware`, `Probe`),
+  (`Celsius`, `RelativeHumidityPercent`, `Firmware`, `Probe`),
   `#[non_exhaustive]` public enums and result structs, documented
   (`missing_docs`).  MIT OR Apache-2.0.  Published to crates.io,
   sharing the workspace version and publishing on every release tag,
@@ -379,6 +388,37 @@ Done: refactor (83e6ab2), library API (a807960), daemon robustness
 (0cfb9be), descriptor (78ecf5e), packaging and release (a3af4ca),
 docs.  Remaining: the release, then yanking 1.0.0.
 
+## 3.0.0: TEMPerHUM
+
+A TEMPerHUM (`TEMPerHUM_V4.1`, same USB ID 3553:a001) joined the
+bench on 2026-10-07; 2.0.0 refused it cleanly (exit 3).  Decisions:
+
+- Support either model, one stick at a time (above).  The firmware
+  prefix tells them apart (`docs/protocol.md`).
+- The daemon presents a TEMPerHUM as two IIO devices from one uhid
+  device, a collection per quantity, linked as `/run/tempered/<label>`
+  and `/run/tempered/<humidity-label>`; `--humidity-label`
+  (`TEMPERED_HUMIDITY_LABEL`), default `humidity`.  The temperature
+  link keeps its name, so readers need no change.
+- `tempered read` prints `<C> <%RH>` on one line for a TEMPerHUM, and
+  `info` and `log` add humidity.  `log` drops `centi_celsius`.
+- Library API (breaking, hence 3.0.0; 2.0.0 to be yanked once it
+  ships): values in natural units, `Celsius` and
+  `RelativeHumidityPercent` (f64 newtypes; percent rather than a
+  fraction), for readings and calibration offsets, replacing
+  `CentiCelsius`, `DeciCelsius` and `DeciPercent`, which exposed the
+  stick's encoding.  `Stick::temperature()` gives way to
+  `Stick::reading()`, which returns a `Reading` (temperature, and
+  humidity for a model that has it) and learns the model from a
+  firmware query the first time.  Added: `Model`,
+  `Firmware::model()`, `Stick::model()`,
+  `Error::HumidityOutOfRange`.  The daemon still sends hundredths to
+  the kernel, rounding, which is exact for the stick's values, so the
+  temperature descriptor and `in_temp_raw` are unchanged.
+
+Done: refactor (bc21e45), TEMPerHUM support, docs.  Remaining: the
+release, then yanking 2.0.0.
+
 ## Phases
 
 0. Scaffold: AGENTS.md, Cargo.toml, toolchain, lints, CI, this plan.
@@ -426,3 +466,9 @@ docs.  Remaining: the release, then yanking 1.0.0.
 7. Docs: `docs/protocol.md`, `docs/daemon.md`, `docs/running.md`, and
    the descriptor rationale above.  Checked against the code for
    2.0.0.  **Done.**
+8. TEMPerHUM (3.0.0, above): protocol and fixtures, humidity
+   collection and link, CLI, docs; checked by hand against the bench
+   TEMPerHUM with `read`, `info` and `log`.  Root tests (`make
+   test-hw`) pass on 7.0.0-38: temperature and humidity against the
+   real drivers, a fake TEMPerHUM through the daemon, and the real
+   TEMPerHUM.  **Done.**

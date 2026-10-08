@@ -40,8 +40,8 @@ const MIN_INTERVAL: Duration = Duration::from_secs(1);
 /// never expires it.
 const MIN_HOLD_INTERVALS: u32 = 2;
 
-/// Read a PCsensor TEMPerGold USB thermometer and present it as a Linux
-/// IIO device.
+/// Read a PCsensor TEMPerGold or TEMPerHUM USB stick and present it as
+/// Linux IIO devices.
 #[derive(Debug, Parser)]
 #[command(name = "tempered", version = VERSION)]
 struct Cli {
@@ -58,12 +58,16 @@ struct Cli {
 enum Action {
     #[command(flatten)]
     Tool(Tool),
-    /// Present the stick as an IIO device until stopped.  Runs in the
+    /// Present the stick as IIO devices until stopped.  Runs in the
     /// foreground, for systemd.
     Daemon {
-        /// Name of the link to the IIO device under the run directory.
+        /// Name of the link to the temperature IIO device under the run
+        /// directory.
         #[arg(long, env = "TEMPERED_LABEL", default_value = "temperature")]
         label: Label,
+        /// Name of the link to the humidity IIO device, for a TEMPerHUM.
+        #[arg(long, env = "TEMPERED_HUMIDITY_LABEL", default_value = "humidity")]
+        humidity_label: Label,
         /// Time between readings, at least 1s.
         #[arg(long, env = "TEMPERED_INTERVAL", default_value = "10s", value_parser = parse_interval)]
         interval: Duration,
@@ -80,7 +84,8 @@ enum Action {
 /// The diagnostic subcommands, which read the stick directly.
 #[derive(Debug, Subcommand)]
 enum Tool {
-    /// Print the temperature in degrees C.
+    /// Print the temperature in degrees C, then, for a stick that
+    /// measures it, the relative humidity in percent.
     Read,
     /// Print everything the stick reports about itself.
     Info,
@@ -103,24 +108,26 @@ fn main() -> ExitCode {
     match cli.action {
         Action::Daemon {
             label,
+            humidity_label,
             interval,
             hold,
             run_dir,
         } => {
             if hold < interval * MIN_HOLD_INTERVALS {
-                Cli::command()
-                    .error(
-                        ErrorKind::ValueValidation,
-                        format!(
-                            "--hold ({hold:?}) must be at least {MIN_HOLD_INTERVALS} \
-                             times --interval ({interval:?})"
-                        ),
-                    )
-                    .exit();
+                invalid(format!(
+                    "--hold ({hold:?}) must be at least {MIN_HOLD_INTERVALS} \
+                     times --interval ({interval:?})"
+                ));
+            }
+            if label == humidity_label {
+                invalid(format!(
+                    "--label and --humidity-label must differ (both {label})"
+                ));
             }
             daemon::run(Config {
                 device: cli.device,
                 label,
+                humidity_label,
                 interval,
                 hold,
                 run_dir,
@@ -137,6 +144,13 @@ fn main() -> ExitCode {
     }
 }
 
+/// Exits with a clap validation error, status 2.
+fn invalid(message: String) -> ! {
+    Cli::command()
+        .error(ErrorKind::ValueValidation, message)
+        .exit()
+}
+
 /// The diagnostic commands.
 fn tool(device: Option<PathBuf>, action: Tool) -> anyhow::Result<()> {
     // The library's errors already name the node.
@@ -145,10 +159,17 @@ fn tool(device: Option<PathBuf>, action: Tool) -> anyhow::Result<()> {
         None => Stick::find()?,
     };
     match action {
-        Tool::Read => println!("{}", stick.temperature()?),
+        Tool::Read => {
+            let reading = stick.reading()?;
+            match reading.humidity {
+                Some(humidity) => println!("{} {humidity}", reading.temperature),
+                None => println!("{}", reading.temperature),
+            }
+        }
         Tool::Info => {
             println!("device: {}", stick.transport().path().display());
             println!("firmware: {}", stick.firmware()?);
+            println!("model: {}", stick.model()?);
             let sensor_type = stick.sensor_type()?;
             println!(
                 "sensor_type: inner=0x{:02x} outer=0x{:02x}",
@@ -165,7 +186,11 @@ fn tool(device: Option<PathBuf>, action: Tool) -> anyhow::Result<()> {
                 calibration.outer_humidity
             );
             println!("manufacture_date: {}", stick.manufacture_date()?);
-            println!("temperature: {} C", stick.temperature()?);
+            let reading = stick.reading()?;
+            println!("temperature: {} C", reading.temperature);
+            if let Some(humidity) = reading.humidity {
+                println!("humidity: {humidity} %RH");
+            }
         }
         Tool::Log {
             interval,

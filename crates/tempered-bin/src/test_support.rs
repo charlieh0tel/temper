@@ -8,21 +8,24 @@ use crate::iio;
 use crate::mutex::lock;
 use crate::sensor::Quantity;
 
-/// Serializes tests that create a HID temperature sensor: the kernel's
-/// `hid-sensor-temperature` cannot handle two at once (see
+/// Serializes tests that create HID temperature or humidity sensors:
+/// the kernel's drivers cannot handle two of a kind at once (see
 /// `iio::sensor`), and doing so oopses the kernel.
-static TEMPERATURE_SENSOR: Mutex<()> = Mutex::new(());
+static SENSOR: Mutex<()> = Mutex::new(());
 
-/// Holds the right to create a HID temperature sensor, once no other
-/// exists, such as one from a running `tempered@` service.
-pub(crate) fn one_temperature_sensor() -> MutexGuard<'static, ()> {
-    let guard = lock(&TEMPERATURE_SENSOR);
-    if let Some(other) = iio::sensor(Quantity::Temperature) {
-        panic!(
-            "a HID temperature sensor already exists ({}); stop it first, \
-             e.g. systemctl stop 'tempered@*'",
-            other.display()
-        );
+/// Holds the right to create HID temperature and humidity sensors, once
+/// no other exists, such as one from a running `tempered@` service.
+pub(crate) fn one_sensor() -> MutexGuard<'static, ()> {
+    let guard = lock(&SENSOR);
+    for quantity in [Quantity::Temperature, Quantity::Humidity] {
+        if let Some(other) = iio::sensor(quantity) {
+            panic!(
+                "a HID {} sensor already exists ({}); stop it first, \
+                 e.g. systemctl stop 'tempered@*'",
+                quantity.iio_name(),
+                other.display()
+            );
+        }
     }
     guard
 }

@@ -57,8 +57,13 @@ const STICK_DESCRIPTOR: &[u8] = &[
     0xc0,                   // End Collection
 ];
 
-/// Replies to the firmware query: `TEMPerGold_V3.5`, as captured.
-const FIRMWARE_REPLY: [&[u8; 8]; 2] = [b"TEMPerGo", b"ld_V3.5 "];
+/// Replies to the firmware query, as captured.
+const GOLD_FIRMWARE_REPLY: [&[u8; 8]; 2] = [b"TEMPerGo", b"ld_V3.5 "];
+const HUM_FIRMWARE_REPLY: [&[u8; 8]; 2] = [b"TEMPerHU", b"M_V4.1\0\0"];
+
+/// The second byte of the TEMPerHUM's temperature reply (its sensor
+/// type), as captured; the TEMPerGold's is 0x80.
+const HUM_SENSOR_TYPE: u8 = 0x20;
 
 /// The second byte of the commands the fake answers.
 const FIRMWARE_COMMAND: u8 = 0x86;
@@ -76,6 +81,8 @@ const POLL_PERIOD: Duration = Duration::from_millis(100);
 #[derive(Debug)]
 struct FakeState {
     centi_celsius: i16,
+    /// Set for a fake TEMPerHUM.
+    centi_percent: Option<i16>,
     answering: bool,
 }
 
@@ -117,21 +124,42 @@ fn replies(command: &[u8], state: &FakeState) -> Vec<[u8; 8]> {
     if !state.answering {
         return Vec::new();
     }
-    match command.get(1) {
-        Some(&FIRMWARE_COMMAND) => FIRMWARE_REPLY.iter().map(|r| **r).collect(),
-        Some(&TEMPERATURE_COMMAND) => {
+    match (command.get(1), state.centi_percent) {
+        (Some(&FIRMWARE_COMMAND), None) => GOLD_FIRMWARE_REPLY.iter().map(|r| **r).collect(),
+        (Some(&FIRMWARE_COMMAND), Some(_)) => HUM_FIRMWARE_REPLY.iter().map(|r| **r).collect(),
+        (Some(&TEMPERATURE_COMMAND), None) => {
             let [high, low] = state.centi_celsius.to_be_bytes();
             vec![[0x80, 0x80, high, low, 0x4e, 0x20, 0, 0]]
+        }
+        (Some(&TEMPERATURE_COMMAND), Some(centi_percent)) => {
+            let [high, low] = state.centi_celsius.to_be_bytes();
+            let [humidity_high, humidity_low] = centi_percent.to_be_bytes();
+            vec![[
+                TEMPERATURE_COMMAND,
+                HUM_SENSOR_TYPE,
+                high,
+                low,
+                humidity_high,
+                humidity_low,
+                0,
+                0,
+            ]]
         }
         _ => Vec::new(),
     }
 }
 
 impl FakeStick {
+    /// A fake TEMPerGold.
     fn new(uniq: &str) -> Self {
+        Self::with_humidity(uniq, None)
+    }
+
+    /// A fake TEMPerGold, or a TEMPerHUM reporting `centi_percent`.
+    fn with_humidity(uniq: &str, centi_percent: Option<i16>) -> Self {
         let uhid = Arc::new(uhid::open().unwrap());
         let create = Create2 {
-            name: "PCsensor TEMPerGold (fake)".to_owned(),
+            name: "PCsensor TEMPer (fake)".to_owned(),
             phys: format!("{uniq}/input1"),
             uniq: uniq.to_owned(),
             bus: Bus::USB,
@@ -144,6 +172,7 @@ impl FakeStick {
         write_event(&uhid, ToKernel::Create2(&create)).unwrap();
         let state = Arc::new(Mutex::new(FakeState {
             centi_celsius: 2345,
+            centi_percent,
             answering: true,
         }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -206,6 +235,11 @@ fn serve(uhid: &File, state: &Mutex<FakeState>, stop: &AtomicBool) {
     }
 }
 
+/// An IIO `*_raw` attribute's value.
+fn read_raw(path: &Path) -> Option<i16> {
+    fs::read_to_string(path).ok()?.trim().parse().ok()
+}
+
 /// `target/debug/tempered`, next to this test binary's `deps`.
 fn binary() -> PathBuf {
     let exe = env::current_exe().unwrap();
@@ -222,6 +256,7 @@ struct Daemon {
 }
 
 const LABEL: &str = "temperature";
+const HUMIDITY_LABEL: &str = "humidity";
 
 impl Daemon {
     fn start(stick: &FakeStick) -> Self {
@@ -248,11 +283,11 @@ impl Daemon {
     }
 
     fn raw(&self) -> Option<i16> {
-        fs::read_to_string(self.link().join("in_temp_raw"))
-            .ok()?
-            .trim()
-            .parse()
-            .ok()
+        read_raw(&self.link().join("in_temp_raw"))
+    }
+
+    fn humidity_link(&self) -> PathBuf {
+        self.run_dir.path().join(HUMIDITY_LABEL)
     }
 
     fn signal(&self, signal: &str) {
@@ -279,7 +314,7 @@ impl Drop for Daemon {
 #[test]
 #[ignore = "needs root for /dev/uhid"]
 fn serves_follows_holds_and_recovers() {
-    let _one = test_support::one_temperature_sensor();
+    let _one = test_support::one_sensor();
     let stick = FakeStick::new("tempered-test-serve");
     let mut daemon = Daemon::start(&stick);
     let first = daemon.wait_for_link();
@@ -310,7 +345,7 @@ fn serves_follows_holds_and_recovers() {
 #[test]
 #[ignore = "needs root for /dev/uhid"]
 fn unplug_cleans_up_and_exits_zero() {
-    let _one = test_support::one_temperature_sensor();
+    let _one = test_support::one_sensor();
     let mut stick = FakeStick::new("tempered-test-unplug");
     let mut daemon = Daemon::start(&stick);
     let target = daemon.wait_for_link();
@@ -323,7 +358,7 @@ fn unplug_cleans_up_and_exits_zero() {
 #[test]
 #[ignore = "needs root for /dev/uhid"]
 fn sigkill_leaves_no_device() {
-    let _one = test_support::one_temperature_sensor();
+    let _one = test_support::one_sensor();
     let stick = FakeStick::new("tempered-test-kill");
     let mut daemon = Daemon::start(&stick);
     let target = daemon.wait_for_link();
@@ -333,4 +368,23 @@ fn sigkill_leaves_no_device() {
         wait_for(SETUP_TIMEOUT, || (!target.exists()).then_some(())).is_some(),
         "the IIO device outlived the daemon"
     );
+}
+
+#[test]
+#[ignore = "needs root for /dev/uhid"]
+fn serves_humidity_from_a_temper_hum() {
+    let _one = test_support::one_sensor();
+    let stick = FakeStick::with_humidity("tempered-test-hum", Some(3101));
+    let mut daemon = Daemon::start(&stick);
+    daemon.wait_for_link();
+    let humidity = wait_for(SETUP_TIMEOUT, || fs::read_link(daemon.humidity_link()).ok())
+        .expect("the humidity link never appeared");
+    assert_eq!(wait_for(SETUP_TIMEOUT, || daemon.raw()), Some(2345));
+    let raw = || read_raw(&daemon.humidity_link().join("in_humidityrelative_raw"));
+    assert_eq!(wait_for(SETUP_TIMEOUT, raw), Some(3101));
+
+    daemon.signal("TERM");
+    assert_eq!(daemon.wait_exit().code(), Some(0));
+    assert!(!humidity.exists());
+    assert!(fs::symlink_metadata(daemon.humidity_link()).is_err());
 }

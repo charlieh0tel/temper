@@ -43,10 +43,10 @@ const DATA_INTERFACE_PHYS_SUFFIX: &str = "/input1";
 const SETTLE_AFTER_OPEN: Duration = Duration::from_secs(1);
 const PAUSE_BEFORE_WRITE: Duration = Duration::from_millis(20);
 
-/// The TEMPerGold's USB vendor ID.
+/// The sticks' USB vendor ID, shared by the TEMPerGold and TEMPerHUM.
 pub const VENDOR_ID: u16 = 0x3553;
 
-/// The TEMPerGold's USB product ID.
+/// The sticks' USB product ID, shared by the TEMPerGold and TEMPerHUM.
 pub const PRODUCT_ID: u16 = 0xa001;
 
 /// usbhid strips a leading 0x00 report ID from writes
@@ -153,7 +153,7 @@ pub fn discover() -> Result<Vec<PathBuf>, Error> {
 #[non_exhaustive]
 pub enum Error {
     /// `/sys/class/hidraw` could not be read.
-    #[error("scanning for TEMPerGold sticks")]
+    #[error("scanning for TEMPer sticks")]
     #[non_exhaustive]
     Scan {
         /// The underlying error.
@@ -170,10 +170,10 @@ pub enum Error {
         source: io::Error,
     },
     /// No stick is attached.
-    #[error("no TEMPerGold found")]
+    #[error("no TEMPer stick found")]
     NotFound,
     /// More than one stick is attached; holds their nodes.
-    #[error("several TEMPerGold sticks found: {}", display_paths(.0))]
+    #[error("several TEMPer sticks found: {}", display_paths(.0))]
     #[non_exhaustive]
     Several(Vec<PathBuf>),
 }

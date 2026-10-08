@@ -1,4 +1,5 @@
-# PCsensor TEMPerGold (3553:a001).  See docs/running.md.
+# PCsensor TEMPerGold and TEMPerHUM (both 3553:a001).  See
+# docs/running.md.
 
 # The data interface (USB interface 1): readable by the tempered
 # group, and starts tempered@hidrawN, which BindsTo= the device so an

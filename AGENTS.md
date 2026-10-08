@@ -3,7 +3,8 @@
 ## Project
 
 A small userspace program in Rust that presents the data from a
-PCsensor TEMPerGold USB thermometer as an IIO device.  A systemd unit
+PCsensor TEMPerGold USB thermometer or TEMPerHUM thermometer and
+hygrometer as IIO devices.  A systemd unit
 and a debian package (using my shared packaging workflows) is
 required.  See `README.md` for what the project is, `PLAN.md` for
 architecture, decisions and open work.
@@ -11,7 +12,7 @@ architecture, decisions and open work.
 - `PLAN.md` records why things are the way they are.  Read it before
   proposing architectural changes, and update it when a decision
   changes.
-- Do not guess at the TEMPerGold command bytes or reply layout, the
+- Do not guess at the TEMPer command bytes or reply layout, the
   uhid event ABI, or HID sensor usages and report descriptor items --
   look them up and cite the source: the kernel tree
   (`include/uapi/linux/uhid.h`, `drivers/hid/`,

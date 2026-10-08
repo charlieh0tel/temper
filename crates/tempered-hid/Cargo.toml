@@ -1,9 +1,9 @@
 [package]
 name = "tempered-hid"
-description = "Read a PCsensor TEMPerGold USB thermometer over Linux hidraw"
+description = "Read a PCsensor TEMPerGold USB thermometer or TEMPerHUM thermometer and hygrometer over Linux hidraw"
 license = "MIT OR Apache-2.0"
 categories = ["hardware-support"]
-keywords = ["temper", "thermometer", "hidraw", "usb"]
+keywords = ["temper", "thermometer", "hygrometer", "hidraw", "usb"]
 readme = "README.md"
 # Published from CI on every release tag; see RELEASING.md.
 version.workspace = true

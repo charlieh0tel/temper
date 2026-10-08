@@ -4,6 +4,7 @@
 use std::env;
 use std::fs::File;
 use std::io;
+use std::iter;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
@@ -28,8 +29,8 @@ use tempered_hid::hidraw::Hidraw;
 use tempered_hid::hidraw::PRODUCT_ID;
 use tempered_hid::hidraw::VENDOR_ID;
 use tempered_hid::protocol;
-use tempered_hid::protocol::CentiCelsius;
 use tempered_hid::protocol::Firmware;
+use tempered_hid::protocol::Reading;
 use tempered_hid::protocol::Stick;
 
 use crate::VERSION;
@@ -98,7 +99,7 @@ pub(crate) enum Exit {
     /// A configuration error; not restarted.
     Config,
     /// The device cannot be presented: unsupported firmware, another
-    /// HID temperature sensor, or no IIO device.  Not restarted.
+    /// HID sensor of a kind it reports, or no IIO devices.  Not restarted.
     CannotPresent,
 }
 
@@ -118,8 +119,10 @@ impl From<Exit> for ExitCode {
 pub(crate) struct Config {
     /// The stick's hidraw node; found if `None`.
     pub(crate) device: Option<PathBuf>,
-    /// The name of the link under `run_dir`.
+    /// The name of the temperature link under `run_dir`.
     pub(crate) label: Label,
+    /// The name of the humidity link, for a stick that measures it.
+    pub(crate) humidity_label: Label,
     /// Time between readings.
     pub(crate) interval: Duration,
     /// How long a reading is served after the stick stops answering.
@@ -132,7 +135,7 @@ pub(crate) struct Config {
 #[derive(Debug)]
 enum Message {
     /// A stick query's result.
-    Reading(Result<CentiCelsius, protocol::Error>),
+    Reading(Result<Reading, protocol::Error>),
     /// `SIGTERM`, `SIGINT` or `SIGHUP`.
     Shutdown,
     /// A `DESTROY` the destroy thread wrote.
@@ -222,11 +225,15 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         None => Stick::find().map_err(failure)?,
     };
     let firmware = query_firmware(&mut stick, &notifier)?;
+    let model = stick.model().map_err(failure)?;
     let uhid = Arc::new(listen::uhid(var).map_err(|error| match error {
         ListenError::Io(_) => failure(error),
         _ => (Exit::Config, error.into()),
     })?);
-    let labels = [(Quantity::Temperature, config.label)];
+    let mut labels = vec![(Quantity::Temperature, config.label)];
+    if model.has_humidity() {
+        labels.push((Quantity::Humidity, config.humidity_label));
+    }
     let mut links = Vec::with_capacity(labels.len());
     for (quantity, label) in labels {
         let lock = acquire(&config.run_dir, &label, logger, &notifier)?;
@@ -286,6 +293,15 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         creations: 0,
         stopping: None,
     })
+}
+
+/// The values a reading gives the sensor.
+fn samples(reading: Reading) -> Vec<Sample> {
+    let temperature = Sample::new(Quantity::Temperature, reading.temperature.get());
+    let humidity = reading
+        .humidity
+        .map(|humidity| Sample::new(Quantity::Humidity, humidity.get()));
+    iter::once(temperature).chain(humidity).collect()
 }
 
 /// Queries the firmware, retrying while the stick may still be settling
@@ -405,7 +421,7 @@ fn spawn_poll(
     thread::spawn(move || {
         let schedule = Schedule::new(interval);
         loop {
-            let result = stick.temperature();
+            let result = stick.reading();
             *lock(&progress) = Instant::now();
             let gone = matches!(result, Err(protocol::Error::Gone));
             if sender.send(Message::Reading(result)).is_err() || gone {
@@ -449,7 +465,7 @@ impl Daemon {
     /// Handles a message outside any wait.
     fn handle(&mut self, message: Message) {
         match message {
-            Message::Reading(Ok(temperature)) => self.on_reading(temperature),
+            Message::Reading(Ok(reading)) => self.on_reading(reading),
             Message::Reading(Err(error)) if !matches!(error, protocol::Error::Gone) => {
                 self.on_failure(error);
             }
@@ -482,14 +498,11 @@ impl Daemon {
         }
     }
 
-    fn on_reading(&mut self, temperature: CentiCelsius) {
+    fn on_reading(&mut self, reading: Reading) {
         if self.failures.success() {
             self.logger.info(format_args!("readings resumed"));
         }
-        let samples = [Sample {
-            quantity: Quantity::Temperature,
-            centi: temperature.get().into(),
-        }];
+        let samples = samples(reading);
         match self.supervisor.on_reading(samples, BootTime::now()) {
             Action::Create(samples) => {
                 if let Some((quantity, other)) = self.other_sensor() {

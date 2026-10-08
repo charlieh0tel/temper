@@ -7,7 +7,8 @@
 //! usage, and by its first usage or its logical collection's usage),
 //! `drivers/iio/common/hid-sensors/hid-sensor-attributes.c` and
 //! `hid-sensor-trigger.c` (which properties are read and written), and
-//! `drivers/iio/temperature/hid-sensor-temperature.c`.  Item encodings
+//! `drivers/iio/temperature/hid-sensor-temperature.c` and
+//! `drivers/iio/humidity/hid-sensor-humidity.c`.  Item encodings
 //! follow the HID 1.11 specification, section 6.2.2.  See `PLAN.md`,
 //! "Report descriptor requirements".
 
@@ -45,6 +46,8 @@ const POWER_STATE_D0_FULL_POWER: u8 = ENUM_BASE + 1;
 pub(crate) enum Quantity {
     /// Degrees C; `hid-sensor-temperature`.
     Temperature,
+    /// Percent relative humidity; `hid-sensor-humidity`.
+    Humidity,
 }
 
 impl Quantity {
@@ -54,21 +57,26 @@ impl Quantity {
     fn report_id(self) -> u8 {
         match self {
             Self::Temperature => 1,
+            Self::Humidity => 2,
         }
     }
 
-    /// The collection's usage (`HID_USAGE_SENSOR_TEMPERATURE`).
+    /// The collection's usage (`HID_USAGE_SENSOR_TEMPERATURE`,
+    /// `HID_USAGE_SENSOR_HUMIDITY`).
     fn usage(self) -> u32 {
         match self {
             Self::Temperature => 0x20_0033,
+            Self::Humidity => 0x20_0032,
         }
     }
 
     /// The input field's usage
-    /// (`HID_USAGE_SENSOR_DATA_ENVIRONMENTAL_TEMPERATURE`).
+    /// (`HID_USAGE_SENSOR_DATA_ENVIRONMENTAL_TEMPERATURE`,
+    /// `HID_USAGE_SENSOR_ATMOSPHERIC_HUMIDITY`).
     fn data_usage(self) -> u32 {
         match self {
             Self::Temperature => 0x20_0434,
+            Self::Humidity => 0x20_0433,
         }
     }
 
@@ -76,6 +84,7 @@ impl Quantity {
     pub(crate) fn iio_name(self) -> &'static str {
         match self {
             Self::Temperature => "temperature",
+            Self::Humidity => "humidity",
         }
     }
 
@@ -150,8 +159,9 @@ impl Quantity {
             0xb1, 0x02,                   //   Feature (Data, Variable, Absolute)
 
             // Input report.  Unit None with exponent -2: the kernel's scale
-            // table matches only Unit 0 or the quantity's own unit, giving a
-            // scale of 10, so raw hundredths read as IIO's thousandths.  32
+            // table (hid-sensor-attributes.c) has a Unit 0 row for both
+            // quantities, giving a scale of 10, so raw hundredths read as
+            // IIO's thousandths.  32
             // bits, though the stick's values fit 16: the drivers' buffered
             // path reads every sample as 32 bits (temperature_capture_sample()),
             // so a 16-bit field would hand it two stray bytes, wrong for
@@ -176,13 +186,27 @@ const FEATURE_REPORT_LEN: usize = 1 + 1 + 1 + 4 + 2;
 /// Input report length: ID, value (i32).
 const INPUT_REPORT_LEN: usize = 1 + 4;
 
+/// Input values are in hundredths: the descriptor's Unit Exponent -2.
+const HUNDREDTHS_PER_UNIT: f64 = 100.0;
+
 /// One quantity's value, in hundredths of its unit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Sample {
     /// What it measures.
-    pub(crate) quantity: Quantity,
+    quantity: Quantity,
     /// The value, in hundredths.
-    pub(crate) centi: i32,
+    centi: i32,
+}
+
+impl Sample {
+    /// `value`, in the quantity's unit (degrees C, percent), to the
+    /// nearest hundredth, which is exact for the stick's readings.
+    pub(crate) fn new(quantity: Quantity, value: f64) -> Self {
+        Self {
+            quantity,
+            centi: (value * HUNDREDTHS_PER_UNIT).round() as i32,
+        }
+    }
 }
 
 /// The feature values the kernel may set.  Report interval and
@@ -536,6 +560,43 @@ mod tests {
     }
 
     #[test]
+    fn humidity_has_its_own_collection() {
+        let humidity = Sample {
+            quantity: Quantity::Humidity,
+            centi: 3101,
+        };
+        let mut sensor = Sensor::new(&[temperature(3512), humidity]);
+        let (input, feature) = report_bits(&sensor.descriptor());
+        assert_eq!(input / 8, 2 * (INPUT_REPORT_LEN - 1));
+        assert_eq!(feature / 8, 2 * (FEATURE_REPORT_LEN - 1));
+        let event = FromKernel::GetReport {
+            id: RequestId::new(7),
+            number: ReportNumber(2),
+            kind: ReportType::Input,
+        };
+        assert_eq!(
+            sensor.handle(&event),
+            Some(Reply::GetReport {
+                id: RequestId::new(7),
+                result: Ok(vec![2, 0x1d, 0x0c, 0, 0]),
+            })
+        );
+        assert_eq!(
+            sensor.update(&[temperature(-1000)]),
+            [
+                vec![REPORT_ID, 0x18, 0xfc, 0xff, 0xff],
+                vec![2, 0x1d, 0x0c, 0, 0]
+            ]
+        );
+    }
+
+    #[test]
+    fn sample_rounds_to_hundredths() {
+        assert_eq!(Sample::new(Quantity::Temperature, 33.88).centi, 3388);
+        assert_eq!(Sample::new(Quantity::Humidity, -0.05).centi, -5);
+    }
+
+    #[test]
     fn lifecycle_events_need_no_reply() {
         let mut sensor = Sensor::new(&[temperature(0)]);
         assert_eq!(sensor.handle(&FromKernel::Open), None);
@@ -578,6 +639,10 @@ mod kernel_tests {
         quantity: Quantity::Temperature,
         centi: 3512,
     };
+    const HUMIDITY: Sample = Sample {
+        quantity: Quantity::Humidity,
+        centi: 3101,
+    };
 
     /// How long the drivers may take to bind and register.
     const SETUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -598,9 +663,8 @@ mod kernel_tests {
     /// How long the surviving sensor keeps sending input reports.
     const FLOOD: Duration = Duration::from_secs(2);
 
-    /// Answers the kernel's requests from a [`Sensor`] until `stop`.
-    fn serve(uhid: &File, stop: &AtomicBool) {
-        let mut sensor = Sensor::new(&[TEMPERATURE]);
+    /// Answers the kernel's requests from `sensor` until `stop`.
+    fn serve(uhid: &File, mut sensor: Sensor, stop: &AtomicBool) {
         let timeout = Timespec::try_from(POLL_PERIOD).unwrap();
         while !stop.load(Ordering::Relaxed) {
             let mut fds = [PollFd::new(uhid, PollFlags::IN)];
@@ -613,18 +677,19 @@ mod kernel_tests {
         }
     }
 
-    /// A virtual temperature sensor served from [`TEMPERATURE`].
+    /// A virtual sensor served from fixed samples.
     #[derive(Debug)]
     struct TestSensor {
         uhid: Arc<File>,
         stop: Arc<AtomicBool>,
         server: Option<thread::JoinHandle<()>>,
-        /// Its IIO device.
-        iio: PathBuf,
+        /// Its IIO devices, in sample order.
+        iio: Vec<PathBuf>,
     }
 
     impl TestSensor {
-        fn create(uniq: &str) -> Self {
+        fn create(uniq: &str, samples: &[Sample]) -> Self {
+            let sensor = Sensor::new(samples);
             let uhid = Arc::new(uhid::open().unwrap());
             let create = Create2 {
                 name: "tempered sensor test".to_owned(),
@@ -635,21 +700,25 @@ mod kernel_tests {
                 product: 0,
                 version: 0,
                 country: 0,
-                descriptor: Sensor::new(&[TEMPERATURE]).descriptor(),
+                descriptor: sensor.descriptor(),
             };
             write_event(&uhid, ToKernel::Create2(&create)).unwrap();
             let stop = Arc::new(AtomicBool::new(false));
             let server = {
                 let uhid = Arc::clone(&uhid);
                 let stop = Arc::clone(&stop);
-                thread::spawn(move || serve(&uhid, &stop))
+                thread::spawn(move || serve(&uhid, sensor, &stop))
             };
             let start = Instant::now();
             let iio = loop {
-                if let Some(path) = iio::find(uniq, Quantity::Temperature.iio_name()) {
-                    break path;
+                let found = samples
+                    .iter()
+                    .map(|sample| iio::find(uniq, sample.quantity.iio_name()))
+                    .collect::<Option<Vec<_>>>();
+                if let Some(paths) = found {
+                    break paths;
                 }
-                assert!(start.elapsed() < SETUP_TIMEOUT, "no IIO device appeared");
+                assert!(start.elapsed() < SETUP_TIMEOUT, "no IIO devices appeared");
                 thread::sleep(POLL_PERIOD);
             };
             Self {
@@ -686,26 +755,46 @@ mod kernel_tests {
         value.trim().to_owned()
     }
 
-    #[test]
-    #[ignore = "needs root for /dev/uhid"]
-    fn iio_device_reads_temperature() {
-        let _one = test_support::one_temperature_sensor();
-        let sensor = TestSensor::create(UNIQ);
-        assert_eq!(read_attribute(&sensor.iio, "name"), "temperature");
+    /// Checks one IIO device's name, value and scale of 10.
+    fn check_channel(iio: &Path, name: &str, channel: &str, sample: Sample) {
+        assert_eq!(read_attribute(iio, "name"), name);
         assert_eq!(
-            read_attribute(&sensor.iio, "in_temp_raw"),
-            TEMPERATURE.centi.to_string()
+            read_attribute(iio, &format!("in_{channel}_raw")),
+            sample.centi.to_string()
         );
-        let scale: f64 = read_attribute(&sensor.iio, "in_temp_scale")
+        let scale: f64 = read_attribute(iio, &format!("in_{channel}_scale"))
             .parse()
             .unwrap();
         assert!((scale - 10.0).abs() < f64::EPSILON, "scale {scale}");
-        read_attribute(&sensor.iio, "in_temp_hysteresis");
+        read_attribute(iio, &format!("in_{channel}_hysteresis"));
+    }
+
+    #[test]
+    #[ignore = "needs root for /dev/uhid"]
+    fn iio_device_reads_temperature() {
+        let _one = test_support::one_sensor();
+        let sensor = TestSensor::create(UNIQ, &[TEMPERATURE]);
+        check_channel(&sensor.iio[0], "temperature", "temp", TEMPERATURE);
 
         thread::sleep(IDLE);
         assert_eq!(
-            read_attribute(&sensor.iio, "in_temp_raw"),
+            read_attribute(&sensor.iio[0], "in_temp_raw"),
             TEMPERATURE.centi.to_string()
+        );
+    }
+
+    #[test]
+    #[ignore = "needs root for /dev/uhid"]
+    fn iio_devices_read_temperature_and_humidity() {
+        let _one = test_support::one_sensor();
+        let sensor = TestSensor::create(UNIQ, &[TEMPERATURE, HUMIDITY]);
+        check_channel(&sensor.iio[0], "temperature", "temp", TEMPERATURE);
+        check_channel(&sensor.iio[1], "humidity", "humidityrelative", HUMIDITY);
+
+        thread::sleep(IDLE);
+        assert_eq!(
+            read_attribute(&sensor.iio[1], "in_humidityrelative_raw"),
+            HUMIDITY.centi.to_string()
         );
     }
 
@@ -721,9 +810,9 @@ mod kernel_tests {
             eprintln!("skipped: set {TWO_SENSORS}=1 on a patched kernel");
             return;
         }
-        let _one = test_support::one_temperature_sensor();
-        let first = TestSensor::create("tempered-two-first");
-        let mut second = TestSensor::create("tempered-two-second");
+        let _one = test_support::one_sensor();
+        let first = TestSensor::create("tempered-two-first", &[TEMPERATURE]);
+        let mut second = TestSensor::create("tempered-two-second", &[TEMPERATURE]);
         let [report] = Sensor::new(&[TEMPERATURE])
             .update(&[TEMPERATURE])
             .try_into()
@@ -740,7 +829,7 @@ mod kernel_tests {
         second.destroy();
         flooding.join().unwrap();
         assert_eq!(
-            read_attribute(&first.iio, "in_temp_raw"),
+            read_attribute(&first.iio[0], "in_temp_raw"),
             TEMPERATURE.centi.to_string()
         );
     }

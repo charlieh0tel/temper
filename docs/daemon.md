@@ -1,7 +1,8 @@
 # `tempered daemon`
 
-How the daemon works.  It reads the stick and presents it as an IIO
-device through `/dev/uhid`, using the codec in
+How the daemon works.  It reads the stick and presents it as IIO
+devices through `/dev/uhid`: temperature, and humidity on a
+TEMPerHUM, using the codec in
 `crates/tempered-bin/src/uhid.rs` and the sensor in `sensor.rs`;
 `PLAN.md` holds the decisions it builds on.  Kernel
 references are to `drivers/hid/uhid.c`, `drivers/hid/hidraw.c` and
@@ -11,23 +12,26 @@ references are to `drivers/hid/uhid.c`, `drivers/hid/hidraw.c` and
 
 ```
 tempered [--device /dev/hidrawN] daemon [--label NAME]
-                [--interval 10s] [--hold 60s]
+                [--humidity-label NAME] [--interval 10s] [--hold 60s]
 ```
 
-`--label`, `--interval` and `--hold` also read an environment variable
+The options also read an environment variable
 (clap's `env` feature), so the unit's `EnvironmentFile=/etc/default/tempered`
 configures it:
 
-- `TEMPERED_LABEL`, default `temperature`: matches
-  `[a-z0-9][a-z0-9_-]{0,63}`, since it becomes a file name in
+- `TEMPERED_LABEL`, default `temperature`: the temperature link.
+  Matches `[a-z0-9][a-z0-9_-]{0,63}`, since it becomes a file name in
   `/run/tempered` and the uhid device name.
+- `TEMPERED_HUMIDITY_LABEL`, default `humidity`: the humidity link,
+  used only for a TEMPerHUM.  Same rules; must differ from the
+  temperature label.
 - `TEMPERED_INTERVAL`, default `10s`, at least `1s`.
 - `TEMPERED_HOLD`, default `60s`, at least twice the interval, so one
   missed reading never expires the hold.
 
 `--device` comes from the unit instance (`/dev/%I`); without it the
 only attached stick is used.  Option errors, including the
-cross-field hold check, are clap errors; those and a bad `LISTEN_*`
+cross-field hold and label checks, are clap errors; those and a bad `LISTEN_*`
 handoff from systemd exit 2, which the unit lists in
 `RestartPreventExitStatus=`.
 
@@ -40,7 +44,7 @@ It runs in the foreground and never forks.
 | 0 | Stopped by `SIGTERM`, `SIGINT` or `SIGHUP`, or the stick was unplugged |
 | 1 | Runtime failure, e.g. `/run/tempered` unusable; restarted |
 | 2 | Configuration error; not restarted |
-| 3 | The device cannot be presented: the stick's firmware is not supported (e.g. a TEMPer2 with the same USB ID), another HID temperature sensor exists, or the IIO device never appeared three times running (e.g. a missing kernel module); not restarted |
+| 3 | The device cannot be presented: the stick's firmware is not supported (e.g. a TEMPer2 with the same USB ID), another HID temperature or humidity sensor exists, or the IIO devices never appeared three times running (e.g. a missing kernel module); not restarted |
 
 Unplugging exits 0: `BindsTo=` stops the unit anyway, and a failure
 status would only make `Restart=on-failure` churn.  Status 3 is not
@@ -68,8 +72,8 @@ prefix to one line only.  Write errors on stderr are ignored.
 ## Startup
 
 1. Parse options.
-2. Open the stick's hidraw node; query the firmware to confirm it is
-   a TEMPerGold, up to 5 times a second apart while extending the
+2. Open the stick's hidraw node; query the firmware to learn the
+   model, TEMPerGold or TEMPerHUM, up to 5 times a second apart while extending the
    start timeout, since a stick can be slow right after plug-in.  A
    stick that answers with other firmware exits 3 at once.
 3. Get `/dev/uhid`.  If `LISTEN_PID` is this process, the fd named
@@ -84,7 +88,7 @@ prefix to one line only.  Write errors on stderr are ignored.
    manual runs).  The `LISTEN_*` variables are left set: unsetting
    them is `unsafe` in edition 2024 and pointless, since the daemon
    never execs.
-4. Take the label's lock (below), waiting if another instance holds
+4. Take each label's lock (below), waiting if another instance holds
    it.  While waiting, it sends `EXTEND_TIMEOUT_USEC=` each tick, since
    the wait counts against `TimeoutStartSec=` and the watchdog is not
    active before `READY=1`.
@@ -169,10 +173,12 @@ other's device; once that one is removed, `temperature_capture_sample()`
 dereferences NULL and the kernel oopses, leaving the removal stuck.
 Found by running the root tests concurrently.
 
-So the daemon's sensor must be the only one on the machine:
+So the daemon's sensors must be the only ones of their kinds on the
+machine, and only one stick is supported at a time:
 
 - Before every create, the daemon looks for a `HID-SENSOR-200033.*`
-  platform device; if one exists, it logs why and exits 3.  One left
+  platform device, and on a TEMPerHUM a `HID-SENSOR-200032.*`
+  (humidity) one; if one exists, it logs why and exits 3.  One left
   by a crashed instance of this daemon (its uhid parent has
   `HID_PHYS=tempered`) gets up to 10 s to go away first: a crashed
   process releases its label lock before the kernel finishes
@@ -183,12 +189,11 @@ So the daemon's sensor must be the only one on the machine:
   happened once, 2026-10-07.
 - On a replug, the label lock keeps the new instance waiting until the
   old one has exited, after its destroy, so two never overlap.
-- The root tests that create a temperature sensor take a process-wide
-  lock (`test_support::one_temperature_sensor`).
+- The root tests that create a sensor take a process-wide lock (`test_support::one_sensor`).
 
 A fix for the kernel (per-instance callbacks, as the accelerometer
 driver does; in `patches/`, sent upstream, not yet merged) would lift
-this.
+this; until then several sticks on one machine are not supported.
 
 ## Supervisor
 
@@ -197,37 +202,51 @@ reading or a failure with its time; outputs are actions.  An unplug
 (`Gone`) is handled by the main thread, not the supervisor.
 
 - **Absent.**  A good reading: set the sensor, write `CREATE2`, wait
-  up to 10 s for the IIO device (pinging the watchdog and checking for
-  shutdown every 100 ms), create the link; go to Present.  If the
-  `CREATE2` write fails, or the IIO device does not appear: log,
+  up to 10 s for the IIO devices (pinging the watchdog and checking for
+  shutdown every 100 ms), create the links; go to Present.  If the
+  `CREATE2` write fails, or an IIO device does not appear: log,
   `DESTROY` if created, clear the sensor, stay Absent.  Three such
   failures in a row: exit 3.  A create cut short by shutdown does not
   count, and never replaces the shutdown's exit status.
-- **Present.**  A good reading: update the sensor, write `INPUT2`
-  (so buffered mode and triggers get data), record the time.  If
+- **Present.**  A good reading: update the sensor, write an `INPUT2`
+  per quantity (so buffered mode and triggers get data), record the
+  time.  If
   `INPUT2` fails with `EINVAL` (only possible if the kernel stopped
   the device; kept as a defensive branch), go to Absent as below.  A
   failure: if the last good reading is older than the hold age, remove
-  the link, write `DESTROY`, clear the sensor; go to Absent.  Ages are
+  the links, write `DESTROY`, clear the sensor; go to Absent.  Ages are
   measured on `CLOCK_BOOTTIME`, so time suspended counts: a reading
   from before a suspend is not served as fresh after it.
 - **Gone**, handled by the main thread in either state: remove the
-  link, `DESTROY` if Present, exit 0.
+  links, `DESTROY` if Present, exit 0.
 
-`CREATE2` fields: name = the label, phys = `tempered`, uniq =
+The descriptor has one application collection per quantity, each with
+its own report ID: temperature (1), and on a TEMPerHUM humidity (2,
+usage 0x200032, data field 0x200433, which `hid-sensor-humidity`
+binds).  `hid-sensor-hub` makes a platform device per collection, so
+one uhid device gives one IIO device per quantity, created and
+destroyed together.  The collections differ only in usages and report
+ID; see `sensor.rs` and `PLAN.md`, "Report descriptor requirements".
+
+`CREATE2` fields: name = the temperature label, phys = `tempered`, uniq =
 `tempered-<pid>-<n>` (unique per creation, so an IIO device from an
 earlier creation is never mistaken for the new one), bus
 `BUS_VIRTUAL`, VID:PID 3553:a001, version and country 0.
 
-## The link
+## The links
+
+One link per quantity: `/run/tempered/<label>` to the temperature IIO
+device, and on a TEMPerHUM `/run/tempered/<humidity-label>` to the
+humidity one.  Each label has its own lock, as below.
 
 After `CREATE2`, the main thread polls `/sys/bus/iio/devices` every
-100 ms for an `iio:device*` entry (not `trigger*`: the driver also
-registers a trigger under the same parent) whose resolved path has an
-ancestor with `HID_UNIQ=<uniq>` in its `uevent`.  This matching is
+100 ms for, per quantity, an `iio:device*` entry (not `trigger*`: the
+driver also registers a trigger under the same parent) whose `name` is
+the driver's (`temperature`, `humidity`) and whose resolved path has
+an ancestor with `HID_UNIQ=<uniq>` in its `uevent`.  This matching is
 tested against the kernel (`sensor.rs`).
 
-The label is owned through `/run/tempered/<label>.lock`, mode 0600,
+A label is owned through `/run/tempered/<label>.lock`, mode 0600,
 taken with an exclusive `flock` at startup and held for the process's
 life, so a crash releases it.  The mode matters: `flock` works on any
 file a process can open, so a lock file others could read could be
@@ -238,20 +257,20 @@ once, extending the start timeout) rather than taking another name.  On
 taking the lock, a leftover `/run/tempered/<label>` is removed: a free
 lock means no live owner.  Lock files are never removed.
 
-The link `/run/tempered/<label>` is replaced atomically: remove any
+A link `/run/tempered/<label>` is replaced atomically: remove any
 leftover `/run/tempered/.<label>.tmp`, symlink it to the resolved
 sysfs path (which contains the never-reused HID sequence number),
-rename it over.  The link is removed before every `DESTROY` and on
-exit.  If writing the link fails while Present, that is logged and
+rename it over.  The links are removed before every `DESTROY` and on
+exit.  If writing a link fails while Present, that is logged and
 retried with each reading.
 
 `/run/tempered` itself comes from tmpfiles.d, mode 0755, owned by
-`tempered`, so readers such as smartclock-sensord can follow the link.
+`tempered`, so readers such as smartclock-sensord can follow the links.
 
 ## Shutdown
 
 On the shutdown message the main thread sends `STOPPING=1`, removes
-the link, has `DESTROY` written if Present and waits for it, and
+the links, has `DESTROY` written if Present and waits for it, and
 returns from `main` without joining the other threads: process exit ends them, wherever
 they are blocked.  `DESTROY` needs no help from the uhid thread: the
 kernel fails pending requests itself.
@@ -290,7 +309,12 @@ effect until the kernel returns.
 - Notification and watchdog enablement: unit tests with a
   `UnixDatagram` pair and set environments.
 - fd adoption: unit tests of the `LISTEN_*` parsing.
-- Root only (`make test-hw`): a fake stick made from a second
+- Sensor: the descriptor's report lengths, the temperature collection
+  byte-identical to 2.0.0's, a second collection for humidity with its
+  own report ID.
+- Root only (`make test-hw`): the descriptor against the real drivers
+  (temperature alone, and temperature with humidity: names, raw
+  values, scale 10, hysteresis, a read after idle); and a fake stick made from a second
   uhid device (`BUS_USB`, phys ending `/input1`, VID:PID 3553:a001)
   that answers hidraw writes (`UHID_OUTPUT`) with `INPUT2`, so the
   real binary runs as a subprocess with `--device /dev/hidrawN`:
@@ -298,7 +322,9 @@ effect until the kernel returns.
   - a failing fake past the hold age removes the link and the IIO
     device, and recovery brings both back;
   - destroying the fake (unplug) makes the daemon clean up and exit 0;
-  - `SIGTERM` cleans up and exits 0; `kill -9` leaves no IIO device.
+  - `SIGTERM` cleans up and exits 0; `kill -9` leaves no IIO device;
+  - a fake TEMPerHUM gets both links, with the right values, and
+    `SIGTERM` removes both.
 - Root only and opt-in (`TEMPERED_TWO_SENSORS=1`): two sensors, one
   destroyed while the other sends input reports.  Oopses a stock
   kernel; for testing the fix in `patches/`.

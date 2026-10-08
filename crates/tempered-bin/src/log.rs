@@ -8,7 +8,7 @@ use clap::ValueEnum;
 use jiff::Timestamp;
 use serde_json::Value;
 use serde_json::json;
-use tempered_hid::protocol::CentiCelsius;
+use tempered_hid::protocol::Reading;
 use tempered_hid::protocol::Stick;
 use tempered_hid::protocol::Transport;
 
@@ -39,7 +39,7 @@ pub(crate) fn run<T: Transport>(
     let mut stdout = io::stdout().lock();
     for _ in 0..count.unwrap_or(u64::MAX) {
         let now = Timestamp::now();
-        let reading = stick.temperature().map_err(anyhow::Error::from);
+        let reading = stick.reading().map_err(anyhow::Error::from);
         let line = line(now, time_format, reading.as_ref().copied());
         if let Err(error) = writeln!(stdout, "{line}").and_then(|()| stdout.flush()) {
             return match error.kind() {
@@ -52,22 +52,28 @@ pub(crate) fn run<T: Transport>(
     Ok(())
 }
 
-/// One output line for a reading taken at `time`.
+/// One output line for a reading taken at `time`.  Humidity fields
+/// appear only for a stick that measures it.
 fn line(
     time: Timestamp,
     time_format: TimeFormat,
-    reading: Result<CentiCelsius, &anyhow::Error>,
+    reading: Result<Reading, &anyhow::Error>,
 ) -> Value {
     let time = match time_format {
         TimeFormat::Rfc3339 => json!(format!("{time:.3}")),
         TimeFormat::Unix => json!(time.as_millisecond() as f64 / MILLIS_PER_SECOND),
     };
     match reading {
-        Ok(temperature) => json!({
-            "time": time,
-            "temperature_c": temperature.celsius(),
-            "centi_celsius": temperature.get(),
-        }),
+        Ok(reading) => {
+            let mut line = json!({
+                "time": time,
+                "temperature_c": reading.temperature.get(),
+            });
+            if let Some(humidity) = reading.humidity {
+                line["humidity_percent"] = json!(humidity.get());
+            }
+            line
+        }
         Err(error) => json!({
             "time": time,
             "error": format!("{error:#}"),
@@ -77,6 +83,9 @@ fn line(
 
 #[cfg(test)]
 mod tests {
+    use tempered_hid::protocol::Celsius;
+    use tempered_hid::protocol::RelativeHumidityPercent;
+
     use super::*;
 
     fn time() -> Timestamp {
@@ -85,19 +94,31 @@ mod tests {
 
     #[test]
     fn reading_rfc3339() {
-        let reading = Ok(CentiCelsius::new(3493));
+        let reading = Ok(Reading::new(Celsius::new(34.93), None));
         assert_eq!(
             line(time(), TimeFormat::Rfc3339, reading).to_string(),
-            r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":34.93,"centi_celsius":3493}"#
+            r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":34.93}"#
         );
     }
 
     #[test]
     fn reading_unix() {
-        let reading = Ok(CentiCelsius::new(-50));
+        let reading = Ok(Reading::new(Celsius::new(-0.5), None));
         assert_eq!(
             line(time(), TimeFormat::Unix, reading).to_string(),
-            r#"{"time":1791312012.345,"temperature_c":-0.5,"centi_celsius":-50}"#
+            r#"{"time":1791312012.345,"temperature_c":-0.5}"#
+        );
+    }
+
+    #[test]
+    fn reading_with_humidity() {
+        let reading = Ok(Reading::new(
+            Celsius::new(33.88),
+            Some(RelativeHumidityPercent::new(31.01)),
+        ));
+        assert_eq!(
+            line(time(), TimeFormat::Rfc3339, reading).to_string(),
+            r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":33.88,"humidity_percent":31.01}"#
         );
     }
 

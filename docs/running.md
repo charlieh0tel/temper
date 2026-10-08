@@ -4,9 +4,10 @@ How the pieces in `packaging/` fit together.  The Debian package
 installs them; the steps below do the same by hand.
 
 Requires systemd 253 or later (for `OpenFile=`; the package depends on
-it), a kernel of 4.14 or later with `uhid`, `hid-sensor-hub` and
-`hid-sensor-temperature`, and no other HID temperature sensor on the
-machine (`docs/daemon.md`).  Debian trixie and Ubuntu 24.04 qualify;
+it), a kernel of 4.14 or later with `uhid`, `hid-sensor-hub`,
+`hid-sensor-temperature` and, for a TEMPerHUM, `hid-sensor-humidity`,
+and no other HID temperature or humidity sensor on the machine
+(`docs/daemon.md`).  One stick at a time.  Debian trixie and Ubuntu 24.04 qualify;
 bookworm and Ubuntu 22.04 do not.
 
 ## Files
@@ -15,7 +16,7 @@ bookworm and Ubuntu 22.04 do not.
 |---|---|---|
 | `packaging/udev/60-tempered.rules` | `/usr/lib/udev/rules.d/` | Gives the stick's data interface to group `tempered`, starts `tempered@hidrawN`, and deauthorizes the stick's keyboard interface |
 | `packaging/systemd/tempered@.service` | `/usr/lib/systemd/system/` | Runs `tempered daemon` for one stick; started by udev, not enabled |
-| `packaging/systemd/tempered.default` | `/etc/default/tempered` | `TEMPERED_LABEL`, `TEMPERED_INTERVAL`, `TEMPERED_HOLD` |
+| `packaging/systemd/tempered.default` | `/etc/default/tempered` | `TEMPERED_LABEL`, `TEMPERED_HUMIDITY_LABEL`, `TEMPERED_INTERVAL`, `TEMPERED_HOLD` |
 | `packaging/tmpfiles.d/tempered.conf` | `/usr/lib/tmpfiles.d/` | Creates `/run/tempered` at boot |
 | `packaging/system-sleep/tempered` | `/usr/lib/systemd/system-sleep/` | Stops the daemon around suspend |
 
@@ -52,13 +53,17 @@ whose stick is still present, without blocking resume.
 ```
 systemctl status 'tempered@*'
 cat /run/tempered/temperature/in_temp_raw /run/tempered/temperature/in_temp_scale
+cat /run/tempered/humidity/in_humidityrelative_raw    # TEMPerHUM
 journalctl -u 'tempered@*'
 ```
 
-`in_temp_raw` times `in_temp_scale` is millidegrees C.
+`in_temp_raw` times `in_temp_scale` is millidegrees C;
+`in_humidityrelative_raw` times its scale is thousandths of a percent
+RH.
 
 ## Only one HID temperature sensor
 
 The daemon exits 3 and stays stopped if the machine already has a HID
-temperature sensor: the kernel cannot handle two.  See
+temperature sensor (or, for a TEMPerHUM, a HID humidity sensor): the
+kernel cannot handle two.  So only one stick is supported at a time.  See
 `docs/daemon.md`, "Only one HID temperature sensor".

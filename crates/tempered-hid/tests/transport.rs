@@ -6,7 +6,7 @@ use std::io;
 use std::time::Duration;
 
 use rustix::io::Errno;
-use tempered_hid::protocol::CentiCelsius;
+use tempered_hid::protocol::Celsius;
 use tempered_hid::protocol::Error;
 use tempered_hid::protocol::REPORT_LEN;
 use tempered_hid::protocol::Report;
@@ -16,11 +16,16 @@ use tempered_hid::protocol::Transport;
 /// The temperature command's second byte, which its reply echoes first.
 const TEMPERATURE_TAG: u8 = 0x80;
 
-/// A stick that answers every command with the queued replies.
+/// The firmware reply, two reports of NUL-padded ASCII.
+const FIRMWARE: &[u8; 2 * REPORT_LEN] = b"TEMPerGold_V3.5\0";
+
+/// A stick that answers each command with the next scripted reply.
 #[derive(Debug, Default)]
 struct Scripted {
-    /// Replies not yet read.
-    replies: VecDeque<Report>,
+    /// Replies to commands not yet sent, in order.
+    replies: VecDeque<Vec<Report>>,
+    /// The reply to the last command, not yet read.
+    pending: VecDeque<Report>,
     /// Commands sent.
     sent: Vec<Report>,
 }
@@ -28,16 +33,17 @@ struct Scripted {
 impl Transport for Scripted {
     fn send(&mut self, report: &Report) -> io::Result<()> {
         self.sent.push(*report);
+        self.pending = self.replies.pop_front().unwrap_or_default().into();
         Ok(())
     }
 
     fn receive(&mut self, _timeout: Duration) -> io::Result<Option<Report>> {
-        // Nothing is pending before a command, so draining finds nothing.
-        if self.sent.is_empty() {
-            return Ok(None);
-        }
-        Ok(self.replies.pop_front())
+        Ok(self.pending.pop_front())
     }
+}
+
+fn firmware_reply() -> Vec<Report> {
+    FIRMWARE.as_chunks::<REPORT_LEN>().0.to_vec()
 }
 
 fn temperature_reply(centi: i16) -> Report {
@@ -50,14 +56,14 @@ fn temperature_reply(centi: i16) -> Report {
 #[test]
 fn reads_temperature_through_own_transport() {
     let transport = Scripted {
-        replies: VecDeque::from([temperature_reply(-1234)]),
+        replies: VecDeque::from([firmware_reply(), vec![temperature_reply(-1234)]]),
         ..Scripted::default()
     };
     let mut stick = Stick::new(transport);
-    let temperature = stick.temperature().unwrap();
-    assert_eq!(temperature, CentiCelsius::new(-1234));
-    assert_eq!(temperature.millicelsius(), -12_340);
-    assert_eq!(stick.into_inner().sent.len(), 1);
+    let reading = stick.reading().unwrap();
+    assert_eq!(reading.temperature, Celsius::new(-12.34));
+    assert_eq!(reading.humidity, None);
+    assert_eq!(stick.into_inner().sent.len(), 2);
 }
 
 #[test]
@@ -76,8 +82,5 @@ fn removed_transport_is_gone() {
         }
     }
 
-    assert!(matches!(
-        Stick::new(Unplugged).temperature(),
-        Err(Error::Gone)
-    ));
+    assert!(matches!(Stick::new(Unplugged).reading(), Err(Error::Gone)));
 }
