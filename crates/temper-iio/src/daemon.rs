@@ -32,6 +32,7 @@ use temper_hid::protocol;
 use temper_hid::protocol::Firmware;
 use temper_hid::protocol::Reading;
 use temper_hid::protocol::Stick;
+use temper_hid::schedule::Schedule;
 
 use crate::VERSION;
 use crate::iio;
@@ -43,7 +44,6 @@ use crate::logger::Logger;
 use crate::mutex::lock;
 use crate::notify;
 use crate::notify::Notifier;
-use crate::schedule::Schedule;
 use crate::sensor::Quantity;
 use crate::sensor::Sample;
 use crate::sensor::Sensor;
@@ -245,7 +245,7 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         });
     }
     logger.info(format_args!(
-        "tempered {}: {firmware} at {}, {}",
+        "temper-iio {}: {firmware} at {}, {}",
         VERSION,
         stick.transport().path().display(),
         links

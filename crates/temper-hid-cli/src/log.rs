@@ -12,7 +12,7 @@ use temper_hid::protocol::Reading;
 use temper_hid::protocol::Stick;
 use temper_hid::protocol::Transport;
 
-use crate::schedule::Schedule;
+use temper_hid::schedule::Schedule;
 
 /// Milliseconds per second, for `--time unix`.
 const MILLIS_PER_SECOND: f64 = 1000.0;

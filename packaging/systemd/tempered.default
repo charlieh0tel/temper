@@ -1,4 +1,4 @@
-# Settings for tempered@.service; see `tempered daemon --help`.
+# Settings for tempered@.service; see `temper-iio --help`.
 
 # Name of the link to the temperature IIO device: /run/tempered/<label>.
 #TEMPERED_LABEL=temperature

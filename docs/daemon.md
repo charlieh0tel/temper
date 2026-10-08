@@ -1,9 +1,9 @@
-# `tempered daemon`
+# `temper-iio`
 
 How the daemon works.  It reads the stick and presents it as IIO
 devices through `/dev/uhid`: temperature, and humidity on a
 TEMPerHUM, using the codec in
-`crates/tempered-bin/src/uhid.rs` and the sensor in `sensor.rs`;
+`crates/temper-iio/src/uhid.rs` and the sensor in `sensor.rs`;
 `PLAN.md` holds the decisions it builds on.  Kernel
 references are to `drivers/hid/uhid.c`, `drivers/hid/hidraw.c` and
 `drivers/hid/hid-sensor-hub.c`.
@@ -11,8 +11,8 @@ references are to `drivers/hid/uhid.c`, `drivers/hid/hidraw.c` and
 ## Command line
 
 ```
-tempered [--device /dev/hidrawN] daemon [--label NAME]
-                [--humidity-label NAME] [--interval 10s] [--hold 60s]
+temper-iio [--device /dev/hidrawN] [--label NAME]
+           [--humidity-label NAME] [--interval 10s] [--hold 60s]
 ```
 
 The options also read an environment variable
@@ -126,7 +126,7 @@ returns.
   `OPEN`, `CLOSE`), including the old device's `STOP` and `CLOSE`
   after a destroy, are logged at debug level.
 - **poll thread.**  Queries the stick on a fixed schedule from t = 0,
-  shared with `tempered log` (`slot_after`), stamps a shared "last
+  shared with `temper log` (`temper_hid::schedule`), stamps a shared "last
   progress" time, and sends each result to the main thread.  A query
   normally takes under 1 s; a failing one can take over 5 s (a hidraw
   write waits out the USB control timeout).

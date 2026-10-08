@@ -15,7 +15,7 @@ bookworm and Ubuntu 22.04 do not.
 | Source | Installed as | Does |
 |---|---|---|
 | `packaging/udev/60-tempered.rules` | `/usr/lib/udev/rules.d/` | Gives the stick's data interface to group `tempered`, starts `tempered@hidrawN`, and deauthorizes the stick's keyboard interface |
-| `packaging/systemd/tempered@.service` | `/usr/lib/systemd/system/` | Runs `tempered daemon` for one stick; started by udev, not enabled |
+| `packaging/systemd/tempered@.service` | `/usr/lib/systemd/system/` | Runs `temper-iio` for one stick; started by udev, not enabled |
 | `packaging/systemd/tempered.default` | `/etc/default/tempered` | `TEMPERED_LABEL`, `TEMPERED_HUMIDITY_LABEL`, `TEMPERED_INTERVAL`, `TEMPERED_HOLD` |
 | `packaging/tmpfiles.d/tempered.conf` | `/usr/lib/tmpfiles.d/` | Creates `/run/tempered` at boot |
 | `packaging/system-sleep/tempered` | `/usr/lib/systemd/system-sleep/` | Stops the daemon around suspend |
@@ -24,7 +24,7 @@ bookworm and Ubuntu 22.04 do not.
 
 ```
 sudo adduser --system --group --no-create-home tempered
-sudo install -m 755 target/release/tempered /usr/bin/
+sudo install -m 755 target/release/temper target/release/temper-iio /usr/bin/
 sudo install -m 644 packaging/udev/60-tempered.rules /usr/lib/udev/rules.d/
 sudo install -m 644 packaging/systemd/tempered@.service /usr/lib/systemd/system/
 sudo install -m 644 packaging/systemd/tempered.default /etc/default/tempered

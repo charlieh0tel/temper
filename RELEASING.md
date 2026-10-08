@@ -2,7 +2,7 @@
 
 A release is a pushed `v*` tag.  The `release` workflow then checks
 that the tag, `Cargo.toml` and the changelog name one version, audits
-`Cargo.lock`, builds the `tempered` .deb for amd64 and arm64, creates
+`Cargo.lock`, builds the `tempered` .deb (the `temper-iio` daemon) for amd64 and arm64, creates
 the GitHub release with the changelog entry as its notes, publishes
 the `temper-hid` library to crates.io (Trusted Publishing; no token
 stored here), and triggers a rebuild of `charlieh0tel/apt-repo`.  The

@@ -1,7 +1,7 @@
-//! Root-only tests of the real `tempered` binary against the real
+//! Root-only tests of the real `temper-iio` binary against the real
 //! kernel, with a fake stick: a second uhid device on `BUS_USB` with the
 //! stick's VID:PID and data interface, answering hidraw commands.  Run
-//! after `cargo build`, since they start `target/debug/tempered`.
+//! after `cargo build`, since they start `target/debug/temper-iio`.
 
 use std::env;
 use std::fs;
@@ -240,15 +240,15 @@ fn read_raw(path: &Path) -> Option<i16> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
-/// `target/debug/tempered`, next to this test binary's `deps`.
+/// `target/debug/temper-iio`, next to this test binary's `deps`.
 fn binary() -> PathBuf {
     let exe = env::current_exe().unwrap();
-    let path = exe.parent().unwrap().parent().unwrap().join("tempered");
+    let path = exe.parent().unwrap().parent().unwrap().join("temper-iio");
     assert!(path.exists(), "{} missing; run cargo build", path.display());
     path
 }
 
-/// A running `tempered daemon`, killed if still running when dropped.
+/// A running `temper-iio`, killed if still running when dropped.
 #[derive(Debug)]
 struct Daemon {
     child: Child,
@@ -264,7 +264,7 @@ impl Daemon {
         let child = Command::new(binary())
             .arg("--device")
             .arg(&stick.hidraw)
-            .args(["daemon", "--label", LABEL, "--interval", INTERVAL])
+            .args(["--label", LABEL, "--interval", INTERVAL])
             .args(["--hold", HOLD, "--run-dir"])
             .arg(run_dir.path())
             .spawn()

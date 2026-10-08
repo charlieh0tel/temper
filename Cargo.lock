@@ -462,14 +462,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "tempered-bin"
+name = "temper-hid-cli"
+version = "3.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "jiff",
+ "serde_json",
+ "temper-hid",
+]
+
+[[package]]
+name = "temper-iio"
 version = "3.0.0"
 dependencies = [
  "anyhow",
  "clap",
  "jiff",
  "rustix",
- "serde_json",
  "signal-hook",
  "temper-hid",
  "tempfile",

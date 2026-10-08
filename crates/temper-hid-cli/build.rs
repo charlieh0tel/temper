@@ -1,4 +1,4 @@
-//! Stamps the build with the commit it came from, as `TEMPERED_VERSION`.
+//! Stamps the build with the commit it came from, as `TEMPER_VERSION`.
 //!
 //! One string for `--version`, the daemon's startup line and the Debian
 //! package's version, so all of them name the same build.  Ordered for
@@ -64,5 +64,5 @@ fn main() {
             _ => package,
         },
     };
-    println!("cargo::rustc-env=TEMPERED_VERSION={version}");
+    println!("cargo::rustc-env=TEMPER_VERSION={version}");
 }

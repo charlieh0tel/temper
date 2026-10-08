@@ -1,6 +1,6 @@
 # TEMPer protocol
 
-What `tempered` sends to a PCsensor TEMPerGold or TEMPerHUM and how it
+What `temper-hid` sends to a PCsensor TEMPerGold or TEMPerHUM and how it
 reads the replies.  Both have USB ID 3553:a001 and the same commands;
 the firmware string tells them apart.  Implemented in the `temper-hid` library,
 `crates/temper-hid/src/protocol.rs` and `crates/temper-hid/src/hidraw.rs`.
@@ -50,7 +50,7 @@ hang-up as `ENODEV`, which the protocol layer turns into
 | Manufacture date | `01 8a 00 00 00 00 00 00` | `8a ..`, bytes 1-3 year - 2000, month, day |
 
 ElfThing sends the firmware query with byte 3 `00`; urwen/temper uses
-`01`, as does `tempered`.  Every reply except the firmware string
+`01`, as does `temper-hid`.  Every reply except the firmware string
 echoes the command's second byte first.
 
 Captured on the bench sticks:
@@ -102,6 +102,6 @@ The library reports values in natural units, `Celsius` and
 ## Writes
 
 ElfThing sends one write, set calibration (`01 81 55 01 a b c d 00`,
-signed tenths, same order as the calibration reply).  `tempered`
+signed tenths, same order as the calibration reply).  `temper-hid`
 never sends it.  No source documents a writable serial number, name or
 ID; see `PLAN.md`.

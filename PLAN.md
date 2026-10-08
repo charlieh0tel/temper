@@ -61,7 +61,7 @@ was considered and rejected: untested, probably wears flash, and one
 slot offsets the reading.  The MCU is unknown and no reflash path is
 published.  Hence the label is configuration, not device state.
 
-`tempered info` reports the read-only extras the vendor app uses:
+`temper info` reports the read-only extras the vendor app uses:
 sensor type (`01 87 ee`) and manufacture date (`01 8a`).  The stick
 answers the latter, but the date is unverified; see `docs/protocol.md`.
 
@@ -103,7 +103,7 @@ From `drivers/iio/common/hid-sensors/hid-sensor-attributes.c`,
 - Friendly Name (0x200301) is read by no kernel code but
   hid-sensor-custom; it is not included.
 
-As built (`crates/tempered-bin/src/sensor.rs`): one application
+As built (`crates/temper-iio/src/sensor.rs`): one application
 collection per quantity, temperature (usage 0x200033, report ID 1)
 and, on a TEMPerHUM, humidity (usage 0x200032 with data field
 0x200433, report ID 2; `hid-sensor-humidity` has the same Unit 0 scale
@@ -315,16 +315,18 @@ A workspace of two crates, as smartclockmon does:
   Publishing (OIDC, `id-token: write`, `rust-lang/crates-io-auth-action`
   pinned by commit SHA, no stored token) runs `cargo publish -p
   temper-hid`, gated on the shared workflow's audit job.
-- `crates/tempered-bin`, the one program, `tempered` ("temper
-  daemon").  For diagnostics: `tempered read`, `tempered info`, and
-  `tempered log`, JSON Lines at a fixed interval, with `time` as
-  RFC 3339 or Unix seconds by flag and failed reads as error lines.
-  `tempered daemon` runs in the foreground under systemd
-  (`Type=notify`, watchdog, restarts; it never forks): uhid, IIO,
-  `/run` links, configuration.  `read`, `info` and `log` poll the
-  stick too, so they are used with the daemon stopped.  The unit,
-  system user, `/run/tempered` and `/etc/default/tempered` take its
-  name.  anyhow and clap.  GPL-3.0-or-later.
+- `crates/temper-hid-cli`, the `temper` tool, published: `temper
+  read`, `temper info`, and `temper log`, JSON Lines at a fixed
+  interval, with `time` as RFC 3339 or Unix seconds by flag and failed
+  reads as error lines.  Its `build.rs` stamps both binaries.  anyhow
+  and clap.  GPL-3.0-or-later.
+- `crates/temper-iio`, the daemon, `temper-iio`, unpublished.  It runs
+  in the foreground under systemd (`Type=notify`, watchdog, restarts;
+  it never forks): uhid, IIO, `/run` links, configuration.  `temper
+  read`, `info` and `log` poll the stick too, so they are used with
+  the daemon stopped.  anyhow and clap.  GPL-3.0-or-later.
+- The two binaries were one program, `tempered` (with a `daemon`
+  subcommand), until the split for temper 1.0.0 (below).
 Toolchain pinned to match smartclockmon.  CI, release and audit use
 the shared `charlieh0tel/deb-workflows`.  Released as a .deb through
 the apt repo; the library also goes to crates.io (above).  Builds are stamped from `git describe`
@@ -473,8 +475,8 @@ daemon pun no longer fits a project with a separate CLI.  So:
 
 - `Schedule` (fixed-interval, non-drifting; `temper log` and the
   daemon's poll) moves into `temper-hid` as a public `schedule` module,
-  made safe: the interval is non-zero, so it cannot divide by zero, and
-  slots count in u64.  The 1 s minimum poll interval moves there too,
+  made safe: a zero interval means no waiting instead of a division by
+  zero, and slot times saturate instead of overflowing.  The 1 s minimum poll interval moves there too,
   as a constant: it is the stick's ("slow to answer").
 - The version stamp's `build.rs` lives in `temper-hid-cli` (a
   published crate may only use files inside itself); `temper-iio`

@@ -15,7 +15,7 @@ StartLimitBurst=10
 Type=notify
 NotifyAccess=main
 EnvironmentFile=-/etc/default/tempered
-ExecStart=/usr/bin/tempered --device /dev/%I daemon
+ExecStart=/usr/bin/temper-iio --device /dev/%I
 # Opened as root and passed as the fd named "uhid"; /dev/uhid stays
 # root-only, since it can create keyboards.
 OpenFile=/dev/uhid:uhid

@@ -16,21 +16,23 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Tag, Cargo.toml and changelog name one version
+      - name: Tag, Cargo.toml, its library dependency and changelog name one version
         env:
           TAG: ${{ github.ref_name }}
         run: |
           cargo=$(sed -n '0,/^version = "\(.*\)"/s//\1/p' Cargo.toml)
+          library=$(sed -n 's/^temper-hid = {.*version = "\([^"]*\)".*/\1/p' Cargo.toml)
           changelog=$(sed -n '1s/^[a-z0-9.+-]* (\([^-)]*\)-[^)]*).*/\1/p' packaging/debian/changelog)
-          echo "tag ${TAG#v}, Cargo.toml $cargo, changelog $changelog"
+          echo "tag ${TAG#v}, Cargo.toml $cargo, library $library, changelog $changelog"
           test "${TAG#v}" = "$cargo"
+          test "$cargo" = "$library"
           test "$cargo" = "$changelog"
 
   deb:
     needs: versions
     # The shared definition: audits Cargo.lock, builds the .deb for
     # amd64 and arm64 with cargo-deb (which picks the one crate carrying
-    # [package.metadata.deb], tempered-bin), and creates the release.
+    # [package.metadata.deb], temper-iio), and creates the release.
     # It reads the toolchain from rust-toolchain.toml.
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@v1
     # Scoped to this job, not the dispatch job below.

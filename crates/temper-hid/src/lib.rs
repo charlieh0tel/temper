@@ -3,7 +3,8 @@
 //!
 //! [`protocol`] encodes the stick's queries and decodes its replies over
 //! any [`protocol::Transport`]; [`hidraw`] finds the stick and provides
-//! the hidraw transport.  Linux only.
+//! the hidraw transport; [`schedule`] paces repeated queries.  Linux
+//! only.
 //!
 //! ```no_run
 //! use temper_hid::protocol::Stick;
@@ -21,3 +22,4 @@
 
 pub mod hidraw;
 pub mod protocol;
+pub mod schedule;

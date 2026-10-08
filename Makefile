@@ -46,12 +46,12 @@ clean:
 # else is a snapshot that sorts after the release before it and before
 # the next, so two builds of different code never share a version.
 deb:
-	touch crates/tempered-bin/build.rs
+	touch crates/temper-hid-cli/build.rs
 	$(CARGO) build --release --workspace
-	@v=$$(./target/release/tempered --version | awk '{print $$2}'); \
+	@v=$$(./target/release/temper-iio --version | awk '{print $$2}'); \
 	case "$$v" in \
-	  *git*) $(CARGO) deb -p tempered-bin --no-build -q --deb-version "$$v-1" ;; \
-	  *)     $(CARGO) deb -p tempered-bin --no-build -q ;; \
+	  *git*) $(CARGO) deb -p temper-iio --no-build -q --deb-version "$$v-1" ;; \
+	  *)     $(CARGO) deb -p temper-iio --no-build -q ;; \
 	esac
 
 # Cut a release: one version, in Cargo.toml and the changelog, tagged.
@@ -66,6 +66,7 @@ release:
 	@git rev-parse -q --verify "refs/tags/v$(VERSION)" >/dev/null && \
 	    { echo "v$(VERSION) already exists" >&2; exit 2; } || true
 	sed -i '0,/^version = ".*"/s//version = "$(VERSION)"/' Cargo.toml
+	sed -i 's/^\(temper-hid = {.*version = "\)[^"]*"/\1$(VERSION)"/' Cargo.toml
 	@head -1 packaging/debian/changelog | grep -q "($(VERSION)-1)" || { \
 	    printf '%s\n\n  * \n\n -- %s  %s\n\n%s\n' \
 	        'tempered ($(VERSION)-1) unstable; urgency=low' \

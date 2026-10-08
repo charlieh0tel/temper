@@ -1,0 +1,27 @@
+[package]
+name = "temper-hid-cli"
+description = "Command-line tool for PCsensor TEMPerGold and TEMPerHUM USB sticks: read, info, and a JSON Lines log"
+license = "GPL-3.0-or-later"
+categories = ["command-line-utilities", "hardware-support"]
+keywords = ["temper", "thermometer", "hygrometer", "hidraw", "usb"]
+readme = "README.md"
+# Published from CI on every release tag; see RELEASING.md.
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "temper"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+jiff = "0.2.38"
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+temper-hid.workspace = true
+
+[lints]
+workspace = true
