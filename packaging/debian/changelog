@@ -1,11 +1,16 @@
 temper (1.0.0-1) unstable; urgency=low
 
-  * First release as temper, renamed from tempered (whose history is at
-    https://github.com/charlieh0tel/tempered-hid): two packages, temper,
-    the command-line tool (temper read, info, log), and temper-iio, the
-    daemon that presents a TEMPerGold or TEMPerHUM as Linux IIO
-    devices.  The daemon's unit, user, settings and links are now named
-    temper-iio (temper-iio@, /etc/default/temper-iio with TEMPER_IIO_*
-    settings, /run/temper-iio).
+  * First release as temper, renamed from tempered (history at
+    https://github.com/charlieh0tel/tempered-hid).  Two packages:
+    temper, the command-line tool (temper read, info, log), and
+    temper-iio, the daemon that presents a TEMPerGold or TEMPerHUM as
+    Linux IIO devices.
+  * The daemon's unit, user, settings and links are named temper-iio:
+    temper-iio@, /etc/default/temper-iio with TEMPER_IIO_* settings,
+    /run/temper-iio.
+  * On crates.io: temper-hid, the library (was tempered-hid; API
+    hid::Device, Stick::reading, Celsius, RelativeHumidityPercent,
+    schedule::Schedule), and temper-hid-cli, the temper tool.
+  * Linux only for now; Windows support is planned.
 
- -- Christopher Hoover <ch@murgatroid.com>  Wed, 07 Oct 2026 22:32:12 -0700
+ -- Christopher Hoover <ch@murgatroid.com>  Wed, 07 Oct 2026 23:12:45 -0700
