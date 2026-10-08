@@ -1,3 +1,15 @@
+temper (1.1.0-1) unstable; urgency=low
+
+  * Windows: the temper-hid library and the temper tool now run on
+    Windows, through hidapi's pure-Rust Windows backend.  Each release
+    carries temper-x86_64-pc-windows-msvc.exe.  Built and tested on
+    Windows in CI, but not yet tried with a stick there: opening the
+    data interface while Windows holds the stick's keyboard interface,
+    the timing, and the errors an unplug gives are unverified.
+  * No change on Linux.
+
+ -- Christopher Hoover <ch@murgatroid.com>  Thu, 08 Oct 2026 01:42:19 -0700
+
 temper (1.0.0-1) unstable; urgency=low
 
   * First release as temper, renamed from tempered (history at
