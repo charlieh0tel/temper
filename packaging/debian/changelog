@@ -1,3 +1,39 @@
+tempered (2.0.0-1) unstable; urgency=low
+
+  * Security: lock files under /run/tempered are now private (0600).
+    Before, any local user could take the label's lock and keep the
+    daemon from starting.
+  * Requires systemd 253 or later (for OpenFile=), now a package
+    dependency: Debian trixie or Ubuntu 24.04, not bookworm.
+  * A stick with other firmware on the same USB ID, such as a TEMPerHUM
+    or TEMPer2, is refused with exit status 3 instead of restarting in
+    a loop.  The firmware query is retried at startup, for sticks slow
+    to answer after plug-in.
+  * The daemon refuses to start beside another HID temperature sensor
+    (the kernel's hid-sensor-temperature mishandles two and can oops);
+    one left by a crashed instance gets 10 s to go away.  Kernel fixes
+    are in patches/ and have been sent upstream.
+  * The held reading's age counts time spent suspended, SIGHUP shuts
+    the daemon down cleanly, and a shutdown during startup keeps its
+    exit status.
+  * The virtual HID sensor's descriptor uses an Application collection
+    and a 32-bit temperature field, so buffered IIO reads of negative
+    temperatures are right.
+  * The suspend hook no longer blocks resume, and restarts only
+    daemons whose stick is still there.  Reinstalling starts the daemon
+    for a stick already plugged in.  Purging locks the tempered account
+    instead of deleting it.
+  * The tempered-hid library's API changes (2.0): opening a stick
+    returns hidraw::Error, which names the node on failure; error
+    variants are non_exhaustive.  Additions include VENDOR_ID and
+    PRODUCT_ID, constructors for the value types, Stick::into_inner,
+    and AsFd for Hidraw.  The stick gets 1 s to settle after opening
+    and 20 ms before each command, as PCsensor's own software does.
+  * tempered read, info and log no longer repeat the device name in
+    errors.
+
+ -- Christopher Hoover <ch@murgatroid.com>  Wed, 07 Oct 2026 18:17:53 -0700
+
 tempered (1.0.0-1) unstable; urgency=low
 
   * First release.  tempered presents a PCsensor TEMPerGold USB
