@@ -3,7 +3,8 @@
 What `temper-hid` sends to a PCsensor TEMPerGold or TEMPerHUM and how it
 reads the replies.  Both have USB ID 3553:a001 and the same commands;
 the firmware string tells them apart.  Implemented in the `temper-hid` library,
-`crates/temper-hid/src/protocol.rs` and `crates/temper-hid/src/hidraw.rs`.
+`crates/temper-hid/src/protocol.rs` and `crates/temper-hid/src/hidraw/`
+(shared logic in `mod.rs`, the Linux backend in `linux.rs`).
 
 ## Sources
 
