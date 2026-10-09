@@ -369,7 +369,9 @@ security, robustness, API and packaging issues.  The fixes break the
 library's API, so the next release is 2.0.0, and 1.0.0 is yanked
 from crates.io once it ships.  Decisions:
 
-- Supported: systemd 253+ (for `OpenFile=`), kernel 4.14+, with the
+- Supported: systemd 253+ (for `OpenFile=`), kernel 6.3+ (corrected
+  2026-10-08 from 4.14+: a sensor in an Application collection is
+  recognized only since e04955db6a7c), with the
   HID sensor modules; Ubuntu 24.04+ and Debian trixie, not bookworm.
   `Depends: systemd (>= 253)`.
 - Unprivileged IIO readers can stall a destroy (5 s each): accepted

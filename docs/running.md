@@ -4,11 +4,14 @@ How the pieces in `packaging/` fit together.  The Debian package
 installs them; the steps below do the same by hand.
 
 Requires systemd 253 or later (for `OpenFile=`; the package depends on
-it), a kernel of 4.14 or later with `uhid`, `hid-sensor-hub`,
+it), a kernel of 6.3 or later with `uhid`, `hid-sensor-hub`,
 `hid-sensor-temperature` and, for a TEMPerHUM, `hid-sensor-humidity`,
 and no other HID temperature or humidity sensor on the machine
-(`docs/daemon.md`).  One stick at a time.  Debian trixie and Ubuntu 24.04 qualify;
-bookworm and Ubuntu 22.04 do not.
+(`docs/daemon.md`).  6.3 is the first kernel that takes a sensor in an
+Application collection, as the daemon's descriptor has, for a sensor
+hub (commit e04955db6a7c, `hid_scan_collection`); older ones leave
+the device to `hid-generic`.  One stick at a time.  Debian trixie and
+Ubuntu 24.04 qualify; bookworm and Ubuntu 22.04 do not.
 
 ## Files
 
