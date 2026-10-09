@@ -13,12 +13,12 @@
 //!
 //! let mut stick = Stick::find()?;
 //! let reading = stick.reading()?;
-//! println!("{} C", reading.temperature);
-//! if let Some(humidity) = reading.humidity {
+//! println!("{} C", reading.inner.temperature);
+//! if let Some(humidity) = reading.inner.humidity {
 //!     println!("{humidity} %RH");
 //! }
-//! if let Some(outer) = reading.outer_temperature {
-//!     println!("{outer} C outer probe");
+//! if let Some(outer) = reading.outer {
+//!     println!("{} C outer probe", outer.temperature);
 //! }
 //! # Ok(())
 //! # }

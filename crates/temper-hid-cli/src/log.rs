@@ -56,7 +56,7 @@ pub(crate) fn run<T: Transport>(
 }
 
 /// One output line for a reading taken at `time`.  Humidity and outer
-/// temperature fields appear only for a stick that measures them.
+/// probe fields appear only when the reading has them.
 fn line(
     time: Timestamp,
     time_format: TimeFormat,
@@ -70,13 +70,16 @@ fn line(
         Ok(reading) => {
             let mut line = json!({
                 "time": time,
-                "temperature_c": reading.temperature.get(),
+                "temperature_c": reading.inner.temperature.get(),
             });
-            if let Some(humidity) = reading.humidity {
+            if let Some(humidity) = reading.inner.humidity {
                 line["humidity_percent"] = json!(humidity.get());
             }
-            if let Some(outer) = reading.outer_temperature {
-                line["outer_temperature_c"] = json!(outer.get());
+            if let Some(outer) = reading.outer {
+                line["outer_temperature_c"] = json!(outer.temperature.get());
+                if let Some(humidity) = outer.humidity {
+                    line["outer_humidity_percent"] = json!(humidity.get());
+                }
             }
             line
         }
@@ -90,6 +93,7 @@ fn line(
 #[cfg(test)]
 mod tests {
     use temper_hid::protocol::Celsius;
+    use temper_hid::protocol::ProbeReading;
     use temper_hid::protocol::RelativeHumidityPercent;
 
     use super::*;
@@ -98,9 +102,13 @@ mod tests {
         "2026-10-06T18:40:12.345678Z".parse().unwrap()
     }
 
+    fn inner(celsius: f64) -> Reading {
+        Reading::new(ProbeReading::new(Celsius::new(celsius), None))
+    }
+
     #[test]
     fn reading_rfc3339() {
-        let reading = Ok(Reading::new(Celsius::new(34.93), None));
+        let reading = Ok(inner(34.93));
         assert_eq!(
             line(time(), TimeFormat::Rfc3339, reading).to_string(),
             r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":34.93}"#
@@ -109,7 +117,7 @@ mod tests {
 
     #[test]
     fn reading_unix() {
-        let reading = Ok(Reading::new(Celsius::new(-0.5), None));
+        let reading = Ok(inner(-0.5));
         assert_eq!(
             line(time(), TimeFormat::Unix, reading).to_string(),
             r#"{"time":1791312012.345,"temperature_c":-0.5}"#
@@ -118,10 +126,10 @@ mod tests {
 
     #[test]
     fn reading_with_humidity() {
-        let reading = Ok(Reading::new(
+        let reading = Ok(Reading::new(ProbeReading::new(
             Celsius::new(33.88),
             Some(RelativeHumidityPercent::new(31.01)),
-        ));
+        )));
         assert_eq!(
             line(time(), TimeFormat::Rfc3339, reading).to_string(),
             r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":33.88,"humidity_percent":31.01}"#
@@ -130,8 +138,7 @@ mod tests {
 
     #[test]
     fn reading_with_outer_temperature() {
-        let reading =
-            Ok(Reading::new(Celsius::new(27.25), None).with_outer_temperature(Celsius::new(22.87)));
+        let reading = Ok(inner(27.25).with_outer(ProbeReading::new(Celsius::new(22.87), None)));
         assert_eq!(
             line(time(), TimeFormat::Rfc3339, reading).to_string(),
             r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":27.25,"outer_temperature_c":22.87}"#

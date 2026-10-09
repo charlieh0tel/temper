@@ -182,8 +182,10 @@ outer one reading `4e 20` (200.00, which urwen/temper's
 `4e 20` until the stick is replugged.  Even at power-up the stick
 does not always see it: on the bench, it missed a fully seated probe
 on three of four replugs, for no known reason.  So `temper-hid` reads the
-number of reports learned when it identified the stick, and reports
-an outer `4e 20` as `Error::OuterProbeRemoved`.
+number of reports learned when it identified the stick, and takes an
+outer `4e 20` as no outer reading: the reading still has the inner
+probe's, and `outer` is `None`, as when no probe was fitted
+(`Stick::has_outer_probe` tells the two apart).
 
 ## Writes
 

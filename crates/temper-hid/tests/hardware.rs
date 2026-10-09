@@ -12,5 +12,5 @@ fn reads_attached_stick() {
     let mut stick = Stick::find().unwrap();
     let model = stick.firmware().unwrap().model().unwrap();
     let reading = stick.reading().unwrap();
-    assert_eq!(reading.humidity.is_some(), model.has_humidity());
+    assert_eq!(reading.inner.humidity.is_some(), model.has_humidity());
 }

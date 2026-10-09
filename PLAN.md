@@ -767,13 +767,23 @@ again, it is not seen until the stick is replugged.  Decisions:
   The choice is fixed until the stick is replugged.  One IIO
   temperature device whose meaning never changes needs no patched
   kernel.
-- An outer probe pulled at runtime (`4e 20`) is treated exactly as
-  the stick being removed: the daemon exits cleanly, and a replug
-  starts it again.  No fallback to the inner probe.  The library
-  reports it as `Error::OuterProbeRemoved`, and the daemon logs it as
-  such, at warning level, saying to replug the stick, rather than as
-  `stick removed`.
-- The library returns both temperatures; the CLI prints both.
+- (Reversed with the daemon.)  An outer probe pulled at runtime
+  (`4e 20`) was treated exactly as the stick being removed, through
+  a library error, `Error::OuterProbeRemoved`.  That threw away a good
+  inner reading once the daemon was gone, so before 2.0.0 shipped the
+  error was dropped: a pulled probe gives a reading with `outer:
+  None`.
+- The library returns both probes' readings, per probe (2026-10-08,
+  chosen over flat fields and over a three-state outer enum):
+  `Reading { inner: ProbeReading, outer: Option<ProbeReading> }`,
+  each `ProbeReading` a temperature and an optional humidity, both
+  `#[non_exhaustive]`.  Per probe, so models with an outer humidity
+  probe (TEMPerX232, TEMPer1F_H1) fit without another break.
+  `outer` is `None` with no probe fitted at identify or with one
+  pulled since; `Stick::has_outer_probe` tells which, so no enum.
+  `inner` stays required: every supported model has one.  The CLI
+  prints both; `log` keeps flat JSON fields (`temperature_c`,
+  `outer_temperature_c`, ...).
 - The temperature reply's length is a property of the identified
   stick, not of the command: `Stick` learns a private `Layout` when
   it identifies the stick and reads exactly that many reports, rather
@@ -784,7 +794,7 @@ again, it is not seen until the stick is replugged.  Decisions:
   Both probes' range is ElfThing's default, -40 to 125 degrees C.
 - Each temperature report's byte 1 is checked against its probe's
   code from the sensor type (`Error::WrongProbe`).
-- Library API breaking (`Reading` gains the outer temperature,
+- Library API breaking (`Reading` per probe, `ProbeReading`,
   `Model::Temper2`), hence 2.0.0.
 
 Done: refactor (cc40cca), TEMPer2 support and docs, dropping

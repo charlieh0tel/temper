@@ -60,8 +60,9 @@ fn reads_temperature_through_own_transport() {
     };
     let mut stick = Stick::new(transport);
     let reading = stick.reading().unwrap();
-    assert_eq!(reading.temperature, Celsius::new(-12.34));
-    assert_eq!(reading.humidity, None);
+    assert_eq!(reading.inner.temperature, Celsius::new(-12.34));
+    assert_eq!(reading.inner.humidity, None);
+    assert_eq!(reading.outer, None);
     assert_eq!(stick.into_inner().sent.len(), 2);
 }
 

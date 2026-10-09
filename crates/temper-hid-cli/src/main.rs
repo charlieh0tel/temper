@@ -38,7 +38,8 @@ struct Cli {
 enum Command {
     /// Print the temperature in degrees C, then, for a stick that
     /// measures it, the relative humidity in percent; on a TEMPer2, the
-    /// inner probe's temperature, then the outer probe's if fitted.
+    /// inner probe's temperature, then the outer probe's if it has a
+    /// reading.
     Read,
     /// Print everything the stick reports about itself.
     Info,
@@ -76,9 +77,12 @@ fn run(device: Option<PathBuf>, command: Command) -> anyhow::Result<()> {
     match command {
         Command::Read => {
             let reading = stick.reading()?;
-            let values = iter::once(reading.temperature.to_string())
-                .chain(reading.humidity.map(|humidity| humidity.to_string()))
-                .chain(reading.outer_temperature.map(|outer| outer.to_string()))
+            let values = iter::once(reading.inner)
+                .chain(reading.outer)
+                .flat_map(|probe| {
+                    iter::once(probe.temperature.to_string())
+                        .chain(probe.humidity.map(|humidity| humidity.to_string()))
+                })
                 .collect::<Vec<_>>();
             println!("{}", values.join(" "));
         }
@@ -103,12 +107,21 @@ fn run(device: Option<PathBuf>, command: Command) -> anyhow::Result<()> {
             );
             println!("manufacture_date: {}", stick.manufacture_date()?);
             let reading = stick.reading()?;
-            println!("temperature: {} C", reading.temperature);
-            if let Some(humidity) = reading.humidity {
+            println!("temperature: {} C", reading.inner.temperature);
+            if let Some(humidity) = reading.inner.humidity {
                 println!("humidity: {humidity} %RH");
             }
-            if let Some(outer) = reading.outer_temperature {
-                println!("outer_temperature: {outer} C");
+            match reading.outer {
+                Some(outer) => {
+                    println!("outer_temperature: {} C", outer.temperature);
+                    if let Some(humidity) = outer.humidity {
+                        println!("outer_humidity: {humidity} %RH");
+                    }
+                }
+                None if stick.has_outer_probe()? => {
+                    println!("outer_temperature: none (probe removed; replug the stick)");
+                }
+                None => {}
             }
         }
         Command::Log {

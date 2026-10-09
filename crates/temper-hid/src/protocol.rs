@@ -274,11 +274,6 @@ pub enum Error {
         /// The code received.
         actual: u8,
     },
-    /// The TEMPer2's outer probe, fitted when the stick was identified,
-    /// was pulled out.  The stick sees a probe only at power-up, so
-    /// replugging the stick is the only way to read it again.
-    #[error("outer probe removed; replug the stick to read it again")]
-    OuterProbeRemoved,
     /// The temperature is outside what the sensor can measure.
     #[error("temperature {0} C outside the sensor range")]
     #[non_exhaustive]
@@ -385,35 +380,53 @@ impl fmt::Display for RelativeHumidityPercent {
     }
 }
 
-/// One reading of everything the stick measures.
+/// What one probe measures.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
-pub struct Reading {
-    /// The temperature; on a TEMPer2, the inner probe's.
+pub struct ProbeReading {
+    /// The temperature.
     pub temperature: Celsius,
-    /// The relative humidity, on models that measure it.
+    /// The relative humidity, on probes that measure it.
     pub humidity: Option<RelativeHumidityPercent>,
-    /// The outer probe's temperature, on a TEMPer2 that had one fitted
-    /// when it was identified.
-    pub outer_temperature: Option<Celsius>,
 }
 
-impl Reading {
+impl ProbeReading {
     /// A reading of `temperature`, and `humidity` if measured.
     #[must_use]
     pub const fn new(temperature: Celsius, humidity: Option<RelativeHumidityPercent>) -> Self {
         Self {
             temperature,
             humidity,
-            outer_temperature: None,
         }
     }
+}
 
-    /// This reading with the outer probe's temperature.
+/// One reading of everything the stick measures, by probe.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct Reading {
+    /// The probe inside the stick.
+    pub inner: ProbeReading,
+    /// The outer probe on a TEMPer2, when it has a reading: `None` if
+    /// none was fitted when the stick was identified, or if it was
+    /// pulled out since ([`Stick::has_outer_probe`] tells which).  The
+    /// stick sees a probe only at power-up, so a pulled one reads again
+    /// only after the stick is replugged.
+    pub outer: Option<ProbeReading>,
+}
+
+impl Reading {
+    /// A reading of the inner probe alone.
     #[must_use]
-    pub const fn with_outer_temperature(self, outer_temperature: Celsius) -> Self {
+    pub const fn new(inner: ProbeReading) -> Self {
+        Self { inner, outer: None }
+    }
+
+    /// This reading with the outer probe's.
+    #[must_use]
+    pub const fn with_outer(self, outer: ProbeReading) -> Self {
         Self {
-            outer_temperature: Some(outer_temperature),
+            outer: Some(outer),
             ..self
         }
     }
@@ -615,7 +628,7 @@ impl<T: Transport> Stick<T> {
     /// As [`Stick::model`] and the query (see [`Error`]),
     /// [`Error::OutOfRange`] or [`Error::HumidityOutOfRange`] for a
     /// reading the sensor cannot produce, and on a TEMPer2
-    /// [`Error::WrongProbe`] and [`Error::OuterProbeRemoved`].
+    /// [`Error::WrongProbe`].
     pub fn reading(&mut self) -> Result<Reading, Error> {
         let layout = self.layout()?;
         let reply = self.query(Command::Temperature, layout.temperature_reports())?;
@@ -623,24 +636,25 @@ impl<T: Transport> Stick<T> {
         if let Some(probes) = layout.probes {
             check_probe(&reply[0], probes.inner)?;
         }
-        let reading = Reading::new(
+        let reading = Reading::new(ProbeReading::new(
             decode_temperature(&reply[0], model)?,
             if model.has_humidity() {
                 Some(decode_humidity(&reply)?)
             } else {
                 None
             },
-        );
+        ));
         let Some(outer) = layout.outer_probe() else {
             return Ok(reading);
         };
         let report = &reply[1];
         check_tag(Command::Temperature, report)?;
         check_probe(report, outer)?;
+        // Pulled out since the stick was identified.
         if centi(report) == NO_PROBE_READING {
-            return Err(Error::OuterProbeRemoved);
+            return Ok(reading);
         }
-        Ok(reading.with_outer_temperature(decode_temperature(report, model)?))
+        Ok(reading.with_outer(ProbeReading::new(decode_temperature(report, model)?, None)))
     }
 
     /// Queries which probes are fitted.
@@ -1052,7 +1066,10 @@ mod tests {
     #[test]
     fn gold_reading_has_no_humidity() {
         let mut stick = Stick::new(Fake::new(&[], &[FIRMWARE, TEMPERATURE]));
-        assert_eq!(stick.reading().unwrap(), Reading::new(Celsius(35.12), None));
+        assert_eq!(
+            stick.reading().unwrap(),
+            Reading::new(ProbeReading::new(Celsius(35.12), None))
+        );
         assert_eq!(stick.model().unwrap(), Model::TemperGold);
         assert_eq!(stick.transport.sent.len(), 2);
     }
@@ -1069,8 +1086,8 @@ mod tests {
     fn captured_hum_reading() {
         let mut stick = Stick::new(Fake::new(&[], &[HUM_FIRMWARE, HUM_TEMPERATURE]));
         let reading = stick.reading().unwrap();
-        assert_eq!(reading.temperature, Celsius(33.88));
-        let humidity = reading.humidity.unwrap();
+        assert_eq!(reading.inner.temperature, Celsius(33.88));
+        let humidity = reading.inner.humidity.unwrap();
         assert_eq!(humidity, RelativeHumidityPercent(31.01));
         assert_eq!(humidity.to_string(), "31.01");
         stick.reading().unwrap();
@@ -1157,7 +1174,8 @@ mod tests {
         ));
         assert_eq!(
             stick.reading().unwrap(),
-            Reading::new(Celsius(27.25), None).with_outer_temperature(Celsius(22.87))
+            Reading::new(ProbeReading::new(Celsius(27.25), None))
+                .with_outer(ProbeReading::new(Celsius(22.87), None))
         );
         assert_eq!(stick.model().unwrap(), Model::Temper2);
         assert!(stick.has_outer_probe().unwrap());
@@ -1181,7 +1199,10 @@ mod tests {
                 TEMPER2_NO_OUTER_TEMPERATURE,
             ],
         ));
-        assert_eq!(stick.reading().unwrap(), Reading::new(Celsius(27.06), None));
+        assert_eq!(
+            stick.reading().unwrap(),
+            Reading::new(ProbeReading::new(Celsius(27.06), None))
+        );
         assert!(!stick.has_outer_probe().unwrap());
     }
 
@@ -1199,7 +1220,11 @@ mod tests {
             &[],
             &[TEMPER2_FIRMWARE, TEMPER2_SENSOR_TYPE, TEMPER2_OUTER_REMOVED],
         ));
-        assert!(matches!(stick.reading(), Err(Error::OuterProbeRemoved)));
+        assert_eq!(
+            stick.reading().unwrap(),
+            Reading::new(ProbeReading::new(Celsius(27.56), None))
+        );
+        assert!(stick.has_outer_probe().unwrap());
     }
 
     #[test]
