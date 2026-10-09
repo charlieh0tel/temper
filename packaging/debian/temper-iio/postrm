@@ -16,7 +16,7 @@ esac
 
 case "$1" in
 purge)
-    rm -rf /run/temper-iio /run/temper-iio-sleep
+    rm -rf /run/temper-iio
     if getent passwd temper-iio >/dev/null; then
         usermod --lock --expiredate 1 --shell /usr/sbin/nologin temper-iio || true
     fi

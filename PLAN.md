@@ -138,19 +138,18 @@ and ignored: the kernel's SET is followed by a GET that returns 0.
 The kernel's sensor suspend hook issues two SET and one GET feature
 request after userspace is frozen, each timing out after 5 s, but only
 if the sensor is runtime-active: a read in the last 3 s, or buffered
-mode on (`hid-sensor-trigger.c`).  Rare, but cheap to avoid.
+mode on (`hid-sensor-trigger.c`).  Rare: at worst suspend takes 15 s
+longer, and nothing breaks.
 
-A `/usr/lib/systemd/system-sleep/` hook runs before
-`/sys/power/state` is written.  In `pre` it records the active
-`temper-iio@*` instances to a root-owned file under `/run` and stops
-them; in `post` it starts, without blocking, those whose hidraw node
-still exists (a stick unplugged during sleep would make a blocking
-start wait 90 s for its device).  A glob cannot be used for
-the start: `systemctl start` globs match only loaded units, and udev's
-`SYSTEMD_WANTS` does not fire again because the hidraw device stays
-active across suspend.  systemd-sleep(8) calls such hooks hacks and
-prefers a logind delay inhibitor, which would add a D-Bus dependency;
-the hook is the simpler choice.
+Accepted, not avoided (decided 2026-10-08).  A
+`/usr/lib/systemd/system-sleep/` hook that stopped the daemons before
+suspend and started them after was dropped: since a stopped instance
+may be unloaded, it had to record the running ones by parsing
+`systemctl list-units` into a state file under `/run`, and udev's
+`SYSTEMD_WANTS` does not fire again on resume.  Too fragile for a
+rare 15 s delay, and never tested on hardware.  The proper fix, if
+ever needed, is a logind delay inhibitor in the daemon (destroy the
+device on `PrepareForSleep`), at the cost of a D-Bus dependency.
 
 ### Concurrency
 
@@ -409,8 +408,9 @@ as a positive value; 32-bit temperature field.
 
 Packaging and release: `Depends: systemd (>= 253)`; `postinst` starts
 the daemon for sticks already plugged in (udev does not on a
-reinstall) and uses `--no-block`; the suspend hook starts without
-blocking and only for sticks still present; purge locks the account;
+reinstall) and uses `--no-block`; the suspend hook (since dropped:
+"System suspend") starts without blocking and only for sticks still
+present; purge locks the account;
 the unit adds `UMask=0077`, `ProtectProc=invisible`, `ProcSubset=pid`,
 `RemoveIPC=yes`; `make deb` reruns `build.rs` so the version stamp
 sees uncommitted edits; the release workflow checks that the tag,
@@ -481,11 +481,12 @@ daemon pun no longer fits a project with a separate CLI.  So:
   no `read`/`info`/`log` (those are `temper`'s).
 - Two debs: `temper` (the CLI; `Suggests: temper-iio`, which carries
   the udev rule that grants hidraw access) and `temper-iio` (daemon,
-  unit, udev rules, tmpfiles.d, sleep hook, defaults).  No
+  unit, udev rules, tmpfiles.d, defaults; a sleep hook until it was
+  dropped).  No
   `Conflicts: tempered`: only this machine ever had it, and it was
   removed by hand.
 - System names, all `temper-iio`: unit `temper-iio@`, user
-  `temper-iio`, `/run/temper-iio`, `/run/temper-iio-sleep`,
+  `temper-iio`, `/run/temper-iio`,
   `/etc/default/temper-iio`, `60-temper-iio.rules`, environment
   `TEMPER_IIO_LABEL`, `TEMPER_IIO_HUMIDITY_LABEL`,
   `TEMPER_IIO_INTERVAL`, `TEMPER_IIO_HOLD`, the uhid device's
@@ -800,7 +801,8 @@ release.
    matched (all `ATTRS{}` keys must match one ancestor); it now uses
    `usb_id`.  Replug works: `BindsTo=` stops the unit cleanly and
    udev starts it again.  Not yet tested on hardware: the suspend
-   hook, and the keyboard's brief bind before it is deauthorized.
+   hook (since dropped), and the keyboard's brief bind before it is
+   deauthorized.
 6. Debian packaging (`[package.metadata.deb]` in `tempered-bin`,
    `packaging/debian/`), release and audit workflows, Makefile
    (`make ci`, `test-hw` under sudo, `deb`, `release`),

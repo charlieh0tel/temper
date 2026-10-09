@@ -22,7 +22,6 @@ Ubuntu 24.04 qualify; bookworm and Ubuntu 22.04 do not.
 | `packaging/systemd/temper-iio@.service` | `/usr/lib/systemd/system/` | Runs `temper-iio` for one stick; started by udev, not enabled |
 | `packaging/systemd/temper-iio.default` | `/etc/default/temper-iio` | `TEMPER_IIO_LABEL`, `TEMPER_IIO_HUMIDITY_LABEL`, `TEMPER_IIO_INTERVAL`, `TEMPER_IIO_HOLD` |
 | `packaging/tmpfiles.d/temper-iio.conf` | `/usr/lib/tmpfiles.d/` | Creates `/run/temper-iio` at boot |
-| `packaging/system-sleep/temper-iio` | `/usr/lib/systemd/system-sleep/` | Stops the daemon around suspend |
 
 ## Installing by hand
 
@@ -34,7 +33,6 @@ sudo install -m 644 packaging/udev/60-temper.rules packaging/udev/60-temper-iio.
 sudo install -m 644 packaging/systemd/temper-iio@.service /usr/lib/systemd/system/
 sudo install -m 644 packaging/systemd/temper-iio.default /etc/default/temper-iio
 sudo install -m 644 packaging/tmpfiles.d/temper-iio.conf /usr/lib/tmpfiles.d/
-sudo install -m 755 packaging/system-sleep/temper-iio /usr/lib/systemd/system-sleep/
 sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/temper-iio.conf
 sudo systemctl daemon-reload
 sudo udevadm control --reload
@@ -51,8 +49,11 @@ The packages' `postinst` scripts do the same, `temper`'s creating the
 group and applying its rule, `temper-iio`'s starting the daemon for
 each stick already plugged in; removing the package stops it, and purging
 it locks the `temper-iio` account rather than deleting it, as Debian does
-with system accounts.  The suspend hook restarts only the daemons
-whose stick is still present, without blocking resume.
+with system accounts.
+
+The daemon keeps running across suspend.  If something read the
+sensor in the 3 s before, suspend can take up to 15 s longer, while
+the kernel waits on the frozen daemon (`PLAN.md`, "System suspend").
 
 ## Checking
 

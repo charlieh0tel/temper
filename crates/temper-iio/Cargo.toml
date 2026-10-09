@@ -54,7 +54,6 @@ assets = [
     ["../../packaging/systemd/temper-iio@.service", "usr/lib/systemd/system/temper-iio@.service", "644"],
     ["../../packaging/systemd/temper-iio.default", "etc/default/temper-iio", "644"],
     ["../../packaging/tmpfiles.d/temper-iio.conf", "usr/lib/tmpfiles.d/temper-iio.conf", "644"],
-    ["../../packaging/system-sleep/temper-iio", "usr/lib/systemd/system-sleep/temper-iio", "755"],
     ["../../README.md", "usr/share/doc/temper-iio/README.md", "644"],
     ["../../docs/running.md", "usr/share/doc/temper-iio/running.md", "644"],
     ["../../docs/daemon.md", "usr/share/doc/temper-iio/daemon.md", "644"],
