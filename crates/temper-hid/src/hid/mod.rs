@@ -254,12 +254,15 @@ const _: () = {
 };
 
 impl Transport for Device {
+    fn send(&mut self, report: &Report) -> io::Result<()> {
+        self.node.write(report)
+    }
+
     /// Waits for the stick to settle after opening, and briefly before
     /// every command.
-    fn send(&mut self, report: &Report) -> io::Result<()> {
+    fn wait_ready(&mut self) {
         thread::sleep(self.settled.saturating_duration_since(Instant::now()));
         thread::sleep(PAUSE_BEFORE_WRITE);
-        self.node.write(report)
     }
 
     /// A `timeout` too long to represent waits without limit.

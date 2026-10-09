@@ -55,7 +55,7 @@ advisory: only programs that take it, such as `temper` and
 Each command is 8 bytes, written to the hidraw node as 9: a 0x00
 report ID, which usbhid strips, then the command.  Replies are read as
 8-byte reports, waiting up to 500 ms each (ElfThing's read timeout).
-Stale input is drained before every command.
+Stale input is drained before every command, after the wait below.
 
 On Windows the same reports go through hidapi's `windows-native`
 backend (`crates/temper-hid/src/hid/windows.rs`): it takes the 0x00
@@ -67,7 +67,9 @@ device list (bus USB, VID:PID, interface 1), and the Win32 errors
 with a stick.
 
 The first command waits until 1 s after the node is opened, and every
-command is preceded by a 20 ms pause.  ElfThing waits 2 s after
+command is preceded by a 20 ms pause (`Transport::wait_ready`), before
+stale input is drained, so a report arriving during the wait is not
+taken for the reply.  ElfThing waits 2 s after
 opening and 20 ms before each write; the shorter settle has worked on
 the bench stick.
 

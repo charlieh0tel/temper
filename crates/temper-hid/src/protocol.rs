@@ -321,6 +321,11 @@ pub trait Transport {
     /// `ENODEV`) if the device was removed.
     fn send(&mut self, report: &Report) -> io::Result<()>;
 
+    /// Waits until the stick can take the next command.  Called before
+    /// stale input is drained, so a report that arrives during the wait
+    /// is drained rather than taken for the reply.  By default, no wait.
+    fn wait_ready(&mut self) {}
+
     /// The next report, or `None` if none arrives within `timeout`.
     ///
     /// # Errors
@@ -671,9 +676,10 @@ impl<T: Transport> Stick<T> {
         ))
     }
 
-    /// Drains stale input, sends `command`, and collects its reply of
-    /// `reply_reports` reports.
+    /// Waits for the stick, drains stale input, sends `command`, and
+    /// collects its reply of `reply_reports` reports.
     fn query(&mut self, command: Command, reply_reports: usize) -> Result<Vec<Report>, Error> {
+        self.transport.wait_ready();
         let stale = iter::from_fn(|| self.transport.receive(Duration::ZERO).transpose())
             .take(MAX_STALE_REPORTS + 1)
             .collect::<io::Result<Vec<_>>>()?;
@@ -845,10 +851,12 @@ mod tests {
 
     /// A stick that has `stale` reports waiting and queues the next of
     /// `replies` as each command is sent, so draining stale input does
-    /// not consume it.  The last reply repeats.
+    /// not consume it.  The last reply repeats.  `late` reports arrive
+    /// while it waits to be ready.
     #[derive(Debug)]
     struct Fake {
         stale: VecDeque<Report>,
+        late: Vec<Report>,
         replies: VecDeque<Vec<Report>>,
         pending: VecDeque<Report>,
         sent: Vec<Report>,
@@ -858,6 +866,7 @@ mod tests {
         fn new(stale: &[Report], replies: &[&[u8]]) -> Self {
             Self {
                 stale: stale.iter().copied().collect(),
+                late: Vec::new(),
                 replies: replies.iter().map(|reply| reports(reply)).collect(),
                 pending: VecDeque::new(),
                 sent: Vec::new(),
@@ -875,6 +884,10 @@ mod tests {
             };
             self.pending.extend(reply.into_iter().flatten());
             Ok(())
+        }
+
+        fn wait_ready(&mut self) {
+            self.stale.extend(self.late.drain(..));
         }
 
         fn receive(&mut self, _timeout: Duration) -> io::Result<Option<Report>> {
@@ -923,6 +936,14 @@ mod tests {
     fn stale_input_is_drained() {
         let stale = reports(TEMPERATURE);
         let mut stick = Stick::new(Fake::new(&stale, &[MANUFACTURE_DATE]));
+        assert_eq!(stick.manufacture_date().unwrap().year, 2019);
+    }
+
+    #[test]
+    fn report_arriving_while_waiting_is_drained() {
+        let mut fake = Fake::new(&[], &[MANUFACTURE_DATE]);
+        fake.late = reports(TEMPERATURE);
+        let mut stick = Stick::new(fake);
         assert_eq!(stick.manufacture_date().unwrap().year, 2019);
     }
 
