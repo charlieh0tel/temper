@@ -79,6 +79,16 @@ pub(crate) struct LabelLock {
 }
 
 /// Removes `path`, which may not exist.
+/// Opens the lock file at `path`, creating it if absent.
+fn open_lock(path: &Path) -> io::Result<File> {
+    File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(LOCK_MODE)
+        .open(path)
+}
+
 fn remove_if_present(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
@@ -90,12 +100,18 @@ impl LabelLock {
     /// Takes `<dir>/<label>.lock` without waiting; `None` if another
     /// process holds it.  A link left behind by a dead owner is removed.
     pub(crate) fn try_acquire(dir: &Path, label: &Label) -> io::Result<Option<Self>> {
-        let lock = File::options()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .mode(LOCK_MODE)
-            .open(dir.join(format!("{label}{LOCK_SUFFIX}")))?;
+        let path = dir.join(format!("{label}{LOCK_SUFFIX}"));
+        let lock = match open_lock(&path) {
+            // Left by another user, e.g. root running the daemon by
+            // hand.  The directory is ours, so replace it.  A live
+            // owner would hold the stick's lock too, which every
+            // instance takes first, so none can be holding this one.
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                fs::remove_file(&path)?;
+                open_lock(&path)?
+            }
+            result => result?,
+        };
         // A lock file left by an older version may be readable by others.
         rustix::fs::fchmod(&lock, Mode::from_raw_mode(LOCK_MODE))?;
         match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
@@ -189,6 +205,21 @@ mod tests {
         let path = dir.path().join("t.lock");
         fs::write(&path, "").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let _lock = LabelLock::try_acquire(dir.path(), &label("t"))
+            .unwrap()
+            .unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, LOCK_MODE);
+    }
+
+    /// A lock file this user cannot open stands in for one root left.
+    /// Root can open anything, so the test proves nothing as root.
+    #[test]
+    fn unopenable_lock_file_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.lock");
+        fs::write(&path, "").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
         let _lock = LabelLock::try_acquire(dir.path(), &label("t"))
             .unwrap()
             .unwrap();

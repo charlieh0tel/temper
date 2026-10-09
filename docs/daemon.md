@@ -279,7 +279,13 @@ replug the new instance may start while the old one still holds the
 lock through its destroy, so the new one waits for the lock (logging
 once, extending the start timeout) rather than taking another name.  On
 taking the lock, a leftover `/run/temper-iio/<label>` is removed: a free
-lock means no live owner.  Lock files are never removed.
+lock means no live owner.  Lock files are not removed, except one the
+daemon cannot open: `sudo temper-iio` run by hand leaves a root-owned
+0600 lock file, which would lock the service user out until reboot.
+The daemon owns `/run/temper-iio`, so it removes that file and creates
+its own.  That cannot break the lock's exclusion: an instance holding
+it also holds the stick's lock, taken first at startup, so no other
+instance gets this far.
 
 A link `/run/temper-iio/<label>` is replaced atomically: remove any
 leftover `/run/temper-iio/.<label>.tmp`, symlink it to the resolved
