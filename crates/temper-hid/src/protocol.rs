@@ -29,6 +29,13 @@ const REPLY_TIMEOUT: Duration = Duration::from_millis(500);
 /// that never stops sending cannot stall the caller forever.
 const MAX_STALE_REPORTS: usize = 16;
 
+/// Reports in the firmware reply: the string spans two.
+const FIRMWARE_REPORTS: usize = 2;
+
+/// Reports in every tagged reply but the temperature's, whose length
+/// is the stick's [`Layout`]'s.
+const ONE_REPORT: usize = 1;
+
 /// TEMPerGold sensor range (ElfThing `parseModel`, default
 /// `innerTemperatureCRangeMin` and `Max`: -40 to 125 degrees C).
 const TEMPER_GOLD_TEMPERATURE_RANGE: RangeInclusive<i16> = -4000..=12500;
@@ -102,6 +109,22 @@ impl fmt::Display for Model {
     }
 }
 
+/// What fixes how a stick's replies are decoded, learned when it is
+/// identified and constant while it stays plugged in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Layout {
+    model: Model,
+}
+
+impl Layout {
+    /// Reports in the temperature reply.
+    fn temperature_reports(self) -> usize {
+        match self.model {
+            Model::TemperGold | Model::TemperHum => ONE_REPORT,
+        }
+    }
+}
+
 /// A query the stick answers.  Every reply except `Firmware`'s echoes
 /// the command's second byte as its first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,14 +152,6 @@ impl Command {
             Self::SensorType => [0x01, 0x87, 0xee, 0x00, 0, 0, 0, 0],
             Self::Calibration => [0x01, 0x82, 0x77, 0x01, 0, 0, 0, 0],
             Self::ManufactureDate => [0x01, 0x8a, 0x00, 0x00, 0, 0, 0, 0],
-        }
-    }
-
-    /// Number of reports in the reply.  The firmware string spans two.
-    fn reply_reports(self) -> usize {
-        match self {
-            Self::Firmware => 2,
-            Self::Temperature | Self::SensorType | Self::Calibration | Self::ManufactureDate => 1,
         }
     }
 
@@ -436,8 +451,8 @@ impl fmt::Display for ManufactureDate {
 #[derive(Debug)]
 pub struct Stick<T> {
     transport: T,
-    /// The model, once a firmware query has told it.
-    model: Option<Model>,
+    /// Known once the stick has been identified.
+    layout: Option<Layout>,
 }
 
 impl<T: Transport> Stick<T> {
@@ -446,7 +461,7 @@ impl<T: Transport> Stick<T> {
     pub fn new(transport: T) -> Self {
         Self {
             transport,
-            model: None,
+            layout: None,
         }
     }
 
@@ -483,20 +498,27 @@ impl<T: Transport> Stick<T> {
     ///
     /// As [`Stick::firmware`].
     pub fn model(&mut self) -> Result<Model, Error> {
-        match self.model {
-            Some(model) => Ok(model),
-            None => self.identify().map(|(_, model)| model),
+        self.layout().map(|layout| layout.model)
+    }
+
+    /// The layout, identifying the stick the first time.
+    fn layout(&mut self) -> Result<Layout, Error> {
+        match self.layout {
+            Some(layout) => Ok(layout),
+            None => self.identify().map(|(_, layout)| layout),
         }
     }
 
-    /// Queries the firmware and records the model it names.
-    fn identify(&mut self) -> Result<(Firmware, Model), Error> {
-        let firmware = decode_firmware(&self.query(Command::Firmware)?)?;
+    /// Queries the firmware and records the layout of the model it
+    /// names.
+    fn identify(&mut self) -> Result<(Firmware, Layout), Error> {
+        let firmware = decode_firmware(&self.query(Command::Firmware, FIRMWARE_REPORTS)?)?;
         let Some(model) = firmware.model() else {
             return Err(Error::UnsupportedFirmware(firmware));
         };
-        self.model = Some(model);
-        Ok((firmware, model))
+        let layout = Layout { model };
+        self.layout = Some(layout);
+        Ok((firmware, layout))
     }
 
     /// Queries everything the stick measures, querying the firmware the
@@ -508,8 +530,9 @@ impl<T: Transport> Stick<T> {
     /// [`Error::OutOfRange`] or [`Error::HumidityOutOfRange`] for a
     /// reading the sensor cannot produce.
     pub fn reading(&mut self) -> Result<Reading, Error> {
-        let model = self.model()?;
-        let reply = self.query(Command::Temperature)?;
+        let layout = self.layout()?;
+        let reply = self.query(Command::Temperature, layout.temperature_reports())?;
+        let model = layout.model;
         Ok(Reading {
             temperature: decode_temperature(&reply, model)?,
             humidity: if model.has_humidity() {
@@ -526,7 +549,9 @@ impl<T: Transport> Stick<T> {
     ///
     /// The query errors; see [`Error`].
     pub fn sensor_type(&mut self) -> Result<SensorType, Error> {
-        Ok(decode_sensor_type(&self.query(Command::SensorType)?))
+        Ok(decode_sensor_type(
+            &self.query(Command::SensorType, ONE_REPORT)?,
+        ))
     }
 
     /// Queries the stored calibration offsets.
@@ -535,7 +560,9 @@ impl<T: Transport> Stick<T> {
     ///
     /// The query errors; see [`Error`].
     pub fn calibration(&mut self) -> Result<Calibration, Error> {
-        Ok(decode_calibration(&self.query(Command::Calibration)?))
+        Ok(decode_calibration(
+            &self.query(Command::Calibration, ONE_REPORT)?,
+        ))
     }
 
     /// Queries the manufacture date; see [`ManufactureDate`].
@@ -545,12 +572,13 @@ impl<T: Transport> Stick<T> {
     /// The query errors; see [`Error`].
     pub fn manufacture_date(&mut self) -> Result<ManufactureDate, Error> {
         Ok(decode_manufacture_date(
-            &self.query(Command::ManufactureDate)?,
+            &self.query(Command::ManufactureDate, ONE_REPORT)?,
         ))
     }
 
-    /// Drains stale input, sends `command`, and collects its reply.
-    fn query(&mut self, command: Command) -> Result<Vec<Report>, Error> {
+    /// Drains stale input, sends `command`, and collects its reply of
+    /// `reply_reports` reports.
+    fn query(&mut self, command: Command, reply_reports: usize) -> Result<Vec<Report>, Error> {
         let stale = iter::from_fn(|| self.transport.receive(Duration::ZERO).transpose())
             .take(MAX_STALE_REPORTS + 1)
             .collect::<io::Result<Vec<_>>>()?;
@@ -559,12 +587,12 @@ impl<T: Transport> Stick<T> {
         }
         self.transport.send(&command.bytes())?;
         let reply = iter::from_fn(|| self.transport.receive(REPLY_TIMEOUT).transpose())
-            .take(command.reply_reports())
+            .take(reply_reports)
             .collect::<io::Result<Vec<_>>>()?;
-        if reply.len() < command.reply_reports() {
+        if reply.len() < reply_reports {
             return Err(Error::ShortReply {
                 command,
-                expected: command.reply_reports(),
+                expected: reply_reports,
                 actual: reply.len(),
             });
         }
@@ -658,21 +686,26 @@ mod tests {
 
     use super::*;
 
+    /// A reply captured from a bench stick, `tests/fixtures/<model>/<name>.bin`.
+    macro_rules! fixture {
+        ($model:literal, $name:literal) => {
+            include_bytes!(concat!("../tests/fixtures/", $model, "/", $name, ".bin"))
+        };
+    }
+
     /// Replies captured from a `TEMPerGold_V3.5` stick.
-    const FIRMWARE: &[u8] = include_bytes!("../tests/fixtures/temper_gold/firmware.bin");
-    const TEMPERATURE: &[u8] = include_bytes!("../tests/fixtures/temper_gold/temperature.bin");
-    const SENSOR_TYPE: &[u8] = include_bytes!("../tests/fixtures/temper_gold/sensor_type.bin");
-    const CALIBRATION: &[u8] = include_bytes!("../tests/fixtures/temper_gold/calibration.bin");
-    const MANUFACTURE_DATE: &[u8] =
-        include_bytes!("../tests/fixtures/temper_gold/manufacture_date.bin");
+    const FIRMWARE: &[u8] = fixture!("temper_gold", "firmware");
+    const TEMPERATURE: &[u8] = fixture!("temper_gold", "temperature");
+    const SENSOR_TYPE: &[u8] = fixture!("temper_gold", "sensor_type");
+    const CALIBRATION: &[u8] = fixture!("temper_gold", "calibration");
+    const MANUFACTURE_DATE: &[u8] = fixture!("temper_gold", "manufacture_date");
 
     /// Replies captured from a `TEMPerHUM_V4.1` stick.
-    const HUM_FIRMWARE: &[u8] = include_bytes!("../tests/fixtures/temper_hum/firmware.bin");
-    const HUM_TEMPERATURE: &[u8] = include_bytes!("../tests/fixtures/temper_hum/temperature.bin");
-    const HUM_SENSOR_TYPE: &[u8] = include_bytes!("../tests/fixtures/temper_hum/sensor_type.bin");
-    const HUM_CALIBRATION: &[u8] = include_bytes!("../tests/fixtures/temper_hum/calibration.bin");
-    const HUM_MANUFACTURE_DATE: &[u8] =
-        include_bytes!("../tests/fixtures/temper_hum/manufacture_date.bin");
+    const HUM_FIRMWARE: &[u8] = fixture!("temper_hum", "firmware");
+    const HUM_TEMPERATURE: &[u8] = fixture!("temper_hum", "temperature");
+    const HUM_SENSOR_TYPE: &[u8] = fixture!("temper_hum", "sensor_type");
+    const HUM_CALIBRATION: &[u8] = fixture!("temper_hum", "calibration");
+    const HUM_MANUFACTURE_DATE: &[u8] = fixture!("temper_hum", "manufacture_date");
 
     fn reports(bytes: &[u8]) -> Vec<Report> {
         bytes.as_chunks::<REPORT_LEN>().0.to_vec()

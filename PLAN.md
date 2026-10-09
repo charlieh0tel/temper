@@ -723,6 +723,40 @@ opening interface 1 while Windows holds the boot keyboard (which can
 type readings; Windows has no equivalent of our udev rule), the
 timing, and the removal codes are unverified.
 
+## temper 2.0.0: TEMPer2
+
+A TEMPer2 (`TEMPer2_V4.1`, same USB ID 3553:a001; an inner probe and
+a detachable outer temperature probe on a lead) joined the bench on
+2026-10-08; 1.3.0 refuses it (unsupported firmware).  Captured: the
+sensor type reply is `87 80 01` with the outer probe, `87 80 00`
+without, and the temperature reply is two reports with it, one
+without; the outer temperature is bytes 2-3 of the second report
+(urwen/temper `TEMPer2_V3.7`/`V3.9`, offset 10, divisor 100).  The
+stick sees the outer probe at power-up only: pulled at runtime, it
+keeps sending two reports with `4e 20` in the outer slot; plugged in
+again, it is not seen until the stick is replugged.  Decisions:
+
+- The daemon presents one temperature: the outer probe's if the stick
+  reports it fitted when identified, otherwise the inner probe's.
+  The choice is fixed until the stick is replugged.  One IIO
+  temperature device whose meaning never changes needs no patched
+  kernel.
+- An outer probe pulled at runtime (`4e 20`) is treated exactly as
+  the stick being removed: the daemon exits cleanly, and a replug
+  starts it again.  No fallback to the inner probe.
+- The library returns both temperatures; the CLI prints both.
+- The temperature reply's length is a property of the identified
+  stick, not of the command: `Stick` learns a private `Layout` when
+  it identifies the stick and reads exactly that many reports, rather
+  than waiting out a timeout on every reading.
+- Exclude `TEMPer2_M12` (urwen/temper: one report, outer at bytes
+  4-5, divisor 256) from the `TEMPer2_` prefix.
+- Library API breaking (`Reading` gains the outer temperature,
+  `Model::Temper2`), hence 2.0.0.
+
+Done: refactor (`Layout`, reply length per stick).  Remaining:
+TEMPer2 support and docs, release.
+
 ## Phases
 
 0. Scaffold: AGENTS.md, Cargo.toml, toolchain, lints, CI, this plan.
