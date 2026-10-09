@@ -5,7 +5,7 @@ members = ["crates/temper-hid", "crates/temper-hid-cli"]
 resolver = "3"
 
 [workspace.package]
-version = "1.3.0"
+version = "2.0.0"
 edition = "2024"
 rust-version = "1.89"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
@@ -15,7 +15,7 @@ repository = "https://github.com/charlieh0tel/temper"
 # and needs a version to depend on it; `make release` keeps this in
 # step with `version` above.
 [workspace.dependencies]
-temper-hid = { path = "crates/temper-hid", version = "1.3.0" }
+temper-hid = { path = "crates/temper-hid", version = "2.0.0" }
 
 # Stripped in the packaged build: lintian objects to unstripped
 # binaries.
