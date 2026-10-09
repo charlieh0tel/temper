@@ -314,7 +314,8 @@ fn samples(reading: Reading) -> Vec<Sample> {
 
 /// Queries the firmware, retrying while the stick may still be settling
 /// after it was plugged in.  A stick that answers but is not supported
-/// is not retried, and its exit status keeps systemd from restarting.
+/// is retried once, in case a stray report was taken for the reply,
+/// and its exit status keeps systemd from restarting.
 fn query_firmware(stick: &mut Stick<Device>, notifier: &Notifier) -> Result<Firmware, StartError> {
     let mut attempt = 1;
     loop {
@@ -323,7 +324,7 @@ fn query_firmware(stick: &mut Stick<Device>, notifier: &Notifier) -> Result<Firm
             Err(
                 error @ (protocol::Error::UnsupportedFirmware { .. }
                 | protocol::Error::FirmwareNotAscii { .. }),
-            ) => return Err((Exit::CannotPresent, error.into())),
+            ) if attempt > 1 => return Err((Exit::CannotPresent, error.into())),
             Err(protocol::Error::Gone) => {
                 return Err((Exit::Clean, anyhow::anyhow!("stick removed")));
             }

@@ -84,7 +84,9 @@ prefix to one line only.  Write errors on stderr are ignored.
    TEMPerGold, TEMPerHUM or TEMPer2 (and on a TEMPer2 the sensor
    type, to learn whether the outer probe is fitted), up to 5 times a
    second apart while extending the start timeout, since a stick can
-   be slow right after plug-in.  A stick that answers with other firmware exits 3 at once.
+   be slow right after plug-in.  A stick that answers with other
+   firmware, or with a reply that is not text, is asked once more, in
+   case a stray report was taken for the reply, then exits 3.
 3. Get `/dev/uhid`.  If `LISTEN_PID` is this process, the fd named
    `uhid` in `LISTEN_FDNAMES` (the unit says `OpenFile=/dev/uhid:uhid`)
    is fd `3 + its position`, checked against `LISTEN_FDS`.  It is
