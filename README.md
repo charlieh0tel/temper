@@ -5,11 +5,14 @@ Software for the PCsensor TEMPerGold, TEMPerHUM and TEMPer2 USB sticks
 
 - `temper`: a command-line tool.  Linux and Windows.
 - `temper-hid`: the Rust library under it.  Linux and Windows.
-- `temper-iio`: a Linux daemon that presents a stick as IIO devices.
+
+Earlier releases also had `temper-iio`, a Linux daemon that presented
+a stick as IIO devices; it was dropped after 1.3.0 (`PLAN.md`).
+Programs that need readings use `temper-hid`.
 
 ## Install
 
-- Debian and Ubuntu: `sudo apt install temper temper-iio` from
+- Debian and Ubuntu: `sudo apt install temper` from
   [apt-repo](https://github.com/charlieh0tel/apt-repo).
 - Rust: `cargo install temper-hid-cli`, or the
   [`temper-hid`](https://crates.io/crates/temper-hid) crate.
@@ -26,22 +29,17 @@ temper log     # JSON Lines
 ```
 
 The udev rule in the `temper` package grants the stick to the user at
-the seat and to group `temper`.
-
-`temper-iio` serves `/run/temper-iio/temperature` and, on a TEMPerHUM,
-`/run/temper-iio/humidity`.  On a TEMPer2 the temperature is the
-outer probe's if one was fitted when the stick was plugged in, else
-the inner probe's.  It handles one stick per machine, and
-holds it: stop it to use `temper`.  See `docs/running.md`.
+the seat and to group `temper`.  One process at a time can have a
+stick open.
 
 ## Build
 
 ```
 make ci             # what CI runs
-make test-hw        # root tests against the kernel and a stick
+make test-hw        # root test against the attached stick
 make windows-check  # Windows build and tests, from Linux
-make deb            # both packages
+make deb            # the temper package
 ```
 
-Releases: `RELEASING.md`.  Design: `PLAN.md` and `docs/`.
+Releases: `RELEASING.md`.  Design: `PLAN.md` and `docs/protocol.md`.
 Licenses: library MIT OR Apache-2.0; programs GPL-3.0-or-later.

@@ -26,8 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 On Linux, reading the stick needs access to its hidraw node.  Other
 transports plug in through `protocol::Transport`.
 
-Part of [temper](https://github.com/charlieh0tel/temper),
-which also presents the stick as Linux IIO devices.  The protocol and
-its sources are in `docs/protocol.md` there.
+Part of [temper](https://github.com/charlieh0tel/temper).  The
+protocol and its sources are in `docs/protocol.md` there.
 
 MIT OR Apache-2.0.

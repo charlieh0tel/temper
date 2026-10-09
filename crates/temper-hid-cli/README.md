@@ -22,7 +22,6 @@ Runs on Linux and Windows.  Each release on GitHub carries
 `temper-x86_64-pc-windows-msvc.exe`, built and tested on Windows
 without a stick; it is untried on hardware.
 
-Part of [temper](https://github.com/charlieh0tel/temper),
-which also presents the stick as Linux IIO devices.
+Part of [temper](https://github.com/charlieh0tel/temper).
 
 GPL-3.0-or-later.

@@ -44,13 +44,13 @@ feature report.
 
 hidraw hands every input report to every process that has the node
 open, so two processes querying one stick read each other's replies:
-`temper read` beside the daemon once took the daemon's temperature
-reply for half of its firmware string.  So on Linux, opening a stick
+`temper read` beside another reader once took that reader's
+temperature reply for half of its firmware string.  So on Linux, opening a stick
 takes an exclusive, non-blocking `flock(2)` on the node, held while it
 is open; a second open fails with `hid::Error::Busy`.  The lock is on
 the node's inode, so a udev symlink to it counts too, and it is
-advisory: only programs that take it, such as `temper` and
-`temper-iio`, respect it.
+advisory: only programs that open the stick through `temper-hid`
+respect it.
 
 Each command is 8 bytes, written to the hidraw node as 9: a 0x00
 report ID, which usbhid strips, then the command.  Replies are read as
@@ -147,7 +147,7 @@ The model is the firmware string's prefix: `TEMPerGold_` or
 as type 6 (`version >= 3.6`), and decodes `TEMPer2_M12` (e.g.
 `TEMPer2_M12_V1.3`, one report, the outer probe in bytes 4-5 per
 urwen/temper) as type 3, which `temper-hid` does not.  Other firmware
-is refused (`temper-iio` exits 3).  Readings outside the sensor's range are
+is refused (`Error::UnsupportedFirmware`).  Readings outside the sensor's range are
 rejected: -40 to 125 degrees C on a TEMPerGold and on either TEMPer2
 probe, -40 to 85 on a TEMPerHUM (ElfThing `parseModel`,
 `innerTemperatureCRangeMin` and `Max`, and `outer...` for the TEMPer2's

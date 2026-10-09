@@ -2,22 +2,19 @@
 
 ## Project
 
-A small userspace program in Rust that presents the data from a
-PCsensor TEMPerGold or TEMPer2 USB thermometer or TEMPerHUM
-thermometer and hygrometer as IIO devices, and a portable command-line tool for the
-same sticks.  A systemd unit and Debian packages (using my shared
-packaging workflows) are required.  See `README.md` for what the project is, `PLAN.md` for
+A Rust library and portable command-line tool that read a PCsensor
+TEMPerGold or TEMPer2 USB thermometer or TEMPerHUM thermometer and
+hygrometer.  A Debian package (using my shared packaging workflows) is
+required.  See `README.md` for what the project is, `PLAN.md` for
 architecture, decisions and open work.
 
 - `PLAN.md` records why things are the way they are.  Read it before
   proposing architectural changes, and update it when a decision
   changes.
-- Do not guess at the TEMPer command bytes or reply layout, the
-  uhid event ABI, or HID sensor usages and report descriptor items --
-  look them up and cite the source: the kernel tree
-  (`include/uapi/linux/uhid.h`, `drivers/hid/`,
-  `drivers/iio/common/hid-sensors/`), the USB-IF HID Usage Tables, or
-  a named prior implementation.
+- Do not guess at the TEMPer command bytes or reply layout, or at
+  hidraw behavior -- look them up and cite the source: PCsensor's
+  ElfThing app, captures from a stick, the kernel tree
+  (`drivers/hid/`), or a named prior implementation.
 
 ## Critical Rules
 

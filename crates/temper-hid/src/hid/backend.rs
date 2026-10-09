@@ -13,8 +13,8 @@ use crate::protocol::Report;
 pub(super) enum Bus {
     /// A real USB device.
     Usb,
-    /// Anything else, such as the `temper-iio` daemon's virtual device,
-    /// which reuses the stick's IDs.
+    /// Anything else, such as a virtual (uhid) device reusing the
+    /// stick's IDs.
     Other,
 }
 

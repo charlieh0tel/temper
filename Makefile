@@ -37,11 +37,8 @@ windows-check:
 	CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine \
 	    $(CARGO) test $(WINDOWS_PACKAGES) --target $(WINDOWS_TARGET)
 
-# The root-only tests: the real kernel through /dev/uhid, a fake stick,
-# and the attached stick.  The test binaries run under sudo; the
-# daemon tests start target/debug/temper-iio, so build first.  Never
-# run in CI.  They create HID sensors, so stop temper-iio@ first:
-# the kernel cannot handle two (docs/daemon.md).
+# The tests that need the attached stick.  The test binaries run under
+# sudo.  Never run in CI.
 test-hw: build
 	$(CARGO) test --workspace --config "target.'cfg(unix)'.runner = 'sudo'" -- --ignored
 
@@ -52,23 +49,20 @@ clean:
 	$(CARGO) clean
 
 # Requires cargo-deb: cargo install cargo-deb
-# Two packages: temper (the CLI, from temper-hid-cli) and temper-iio
-# (the daemon).  Their version is the binaries' own (build.rs, shared
-# by both and rerun here so the
-# stamp sees edits not yet committed): a clean build on
-# its release tag takes the changelog's version, as CI does; anything
-# else is a snapshot that sorts after the release before it and before
-# the next, so two builds of different code never share a version.
+# The temper package, from temper-hid-cli.  Its version is the binary's
+# own (build.rs, rerun here so the stamp sees edits not yet committed):
+# a clean build on its release tag takes the changelog's version, as
+# CI does; anything else is a snapshot that sorts after the release
+# before it and before the next, so two builds of different code never
+# share a version.
 deb:
 	touch crates/temper-hid-cli/build.rs
 	$(CARGO) build --release --workspace
-	@v=$$(./target/release/temper-iio --version | awk '{print $$2}'); \
-	for p in temper-hid-cli temper-iio; do \
-	  case "$$v" in \
-	    *git*) $(CARGO) deb -p $$p --no-build -q --deb-version "$$v-1" ;; \
-	    *)     $(CARGO) deb -p $$p --no-build -q ;; \
-	  esac || exit 1; \
-	done
+	@v=$$(./target/release/temper --version | awk '{print $$2}'); \
+	case "$$v" in \
+	  *git*) $(CARGO) deb -p temper-hid-cli --no-build -q --deb-version "$$v-1" ;; \
+	  *)     $(CARGO) deb -p temper-hid-cli --no-build -q ;; \
+	esac
 
 # Cut a release: one version, in Cargo.toml and the changelog, tagged.
 # Refuses a dirty tree, since the tag would name a commit that does not

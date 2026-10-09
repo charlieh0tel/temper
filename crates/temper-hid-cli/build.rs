@@ -1,7 +1,7 @@
 //! Stamps the build with the commit it came from, as `TEMPER_VERSION`.
 //!
-//! One string for `--version`, the daemon's startup line and the Debian
-//! package's version, so all of them name the same build.  Ordered for
+//! One string for `--version` and the Debian package's version, so both
+//! name the same build.  Ordered for
 //! apt with no version bump after a release (`~` sorts before
 //! everything, `+` after the release it follows):
 //!

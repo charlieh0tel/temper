@@ -2,12 +2,34 @@
 
 ## Goal
 
-Read a PCsensor TEMPerGold USB thermometer, or a TEMPerHUM
-thermometer and hygrometer, and present it as real Linux IIO devices, so stock IIO consumers (libiio, `iio_info`,
-smartclock-sensord) read it without knowing about the thermometer.  Shipped
-as a Debian package with a systemd unit and udev rules.
+Read a PCsensor TEMPerGold or TEMPer2 USB thermometer, or a TEMPerHUM
+thermometer and hygrometer: a Rust library, `temper-hid`, for Linux
+and Windows, and a command-line tool, `temper`, shipped on crates.io
+and as a Debian package with a udev rule for access.
+
+Until 2.0.0 the goal also was to present the stick as real Linux IIO
+devices, through a daemon, `temper-iio`; see "No IIO daemon" below.
 
 ## Decisions
+
+### No IIO daemon
+
+Dropped 2026-10-08, before 2.0.0, with its crate, unit, udev rule,
+tmpfiles.d entry, maintainer scripts, `docs/daemon.md`,
+`docs/running.md` and the kernel patches in `patches/` (all in git
+history).  Its one reader, smartclock-sensord, uses the `temper-hid`
+crate directly, and nothing else needed the stick to look like a
+kernel sensor.  The cost was most of this repository: the uhid codec
+and HID sensor descriptor, kernel version rules (a 6.3 floor, the
+report-ID and short-report changes), the kernel's one-sensor-per-type
+limit, systemd notify, watchdog and restart rules, lock files, the
+udev start rule, and suspend.
+
+The sections from "IIO via /dev/uhid" through "One HID temperature
+sensor per machine", and the daemon parts of later ones, record that
+design and are kept for history.  The apt repository's `temper-iio`
+packages are to be removed there; an installed one keeps working
+until removed (`apt remove temper-iio`).
 
 ### IIO via /dev/uhid
 
@@ -739,7 +761,8 @@ stick sees the outer probe at power-up only: pulled at runtime, it
 keeps sending two reports with `4e 20` in the outer slot; plugged in
 again, it is not seen until the stick is replugged.  Decisions:
 
-- The daemon presents one temperature: the outer probe's if the stick
+- (Built, then dropped with the daemon: "No IIO daemon".)  The daemon
+  presents one temperature: the outer probe's if the stick
   reports it fitted when identified, otherwise the inner probe's.
   The choice is fixed until the stick is replugged.  One IIO
   temperature device whose meaning never changes needs no patched
@@ -764,8 +787,9 @@ again, it is not seen until the stick is replugged.  Decisions:
 - Library API breaking (`Reading` gains the outer temperature,
   `Model::Temper2`), hence 2.0.0.
 
-Done: refactor (cc40cca), TEMPer2 support and docs.  Remaining:
-release.
+Done: refactor (cc40cca), TEMPer2 support and docs, dropping
+`temper-iio`.  Remaining: release, and removing `temper-iio` from the
+apt repository.
 
 ## Phases
 

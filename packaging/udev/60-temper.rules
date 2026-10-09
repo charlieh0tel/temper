@@ -1,6 +1,5 @@
 # PCsensor TEMPerGold, TEMPerHUM and TEMPer2 (all 3553:a001): access to the
-# stick, for the temper tool, smartclock-sensord and temper-iio.  See
-# docs/running.md.
+# stick, for the temper tool and services such as smartclock-sensord.
 
 # The data interface (USB interface 1): readable and writable by group
 # temper, and by the user logged in at the seat (uaccess, applied by
@@ -8,8 +7,7 @@
 # interface number from the USB ancestors; ATTRS{} keys cannot, since
 # all of a rule's parent keys must match one ancestor, and the
 # interface number and the IDs live on different ones.  Requiring a USB
-# parent keeps out the virtual sensor temper-iio creates, which has the
-# same IDs on BUS_VIRTUAL.
+# parent keeps out a virtual device with the same IDs.
 ACTION!="remove", SUBSYSTEM=="hidraw", SUBSYSTEMS=="usb", \
   IMPORT{builtin}="usb_id"
 ACTION!="remove", SUBSYSTEM=="hidraw", ENV{ID_BUS}=="usb", \

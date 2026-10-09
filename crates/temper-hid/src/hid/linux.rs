@@ -215,7 +215,7 @@ MODALIAS=hid:b0003g0001v00003553p0000A001
     fn virtual_device_is_not_usb() {
         let text = DATA_INTERFACE
             .replace("HID_ID=0003", "HID_ID=0006")
-            .replace("usb-0000:00:14.0-1.3/input1", "temper-iio");
+            .replace("usb-0000:00:14.0-1.3/input1", "virtual");
         let uevent = HidUevent::parse(&text).unwrap();
         assert_eq!(uevent.bus, Bus::Other);
         assert_eq!(uevent.interface, None);

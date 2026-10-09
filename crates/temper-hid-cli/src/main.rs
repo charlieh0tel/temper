@@ -121,7 +121,7 @@ fn run(device: Option<PathBuf>, command: Command) -> anyhow::Result<()> {
 }
 
 /// A polling interval such as `10s` or `1m` (jiff's friendly format),
-/// at least [`MIN_INTERVAL`].  Also in `temper-iio`.
+/// at least [`MIN_INTERVAL`].
 fn parse_interval(text: &str) -> anyhow::Result<Duration> {
     let interval = Duration::try_from(text.parse::<jiff::SignedDuration>()?)?;
     ensure!(

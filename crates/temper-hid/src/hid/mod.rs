@@ -62,7 +62,7 @@ const SUPPORTED: &[UsbId] = &[UsbId {
 const DATA_INTERFACE: u8 = 1;
 
 /// Whether `candidate` is a stick's data interface.  The bus rules out
-/// the `temper-iio` daemon's virtual device, which has the same IDs.
+/// a virtual device with the same IDs.
 fn is_stick_data_interface(candidate: &Candidate) -> bool {
     candidate.bus == Bus::Usb
         && SUPPORTED.contains(&candidate.id)
@@ -121,10 +121,10 @@ pub enum Error {
         /// The underlying error.
         source: io::Error,
     },
-    /// Another process has the stick open, such as the `temper-iio`
-    /// daemon.  On Linux, each open holds an exclusive `flock(2)` on the
-    /// node, since two processes would read each other's replies.
-    #[error("{} is in use by another process, such as the temper-iio daemon", path.display())]
+    /// Another process has the stick open.  On Linux, each open holds
+    /// an exclusive `flock(2)` on the node, since two processes would
+    /// read each other's replies.
+    #[error("{} is in use by another process", path.display())]
     #[non_exhaustive]
     Busy {
         /// The node.
@@ -220,8 +220,8 @@ impl Stick<Device> {
     }
 }
 
-/// `Stick<Device>` can move to and be shared with another thread, as the
-/// `temper-iio` daemon does; a change that broke that would fail here.
+/// `Stick<Device>` can move to and be shared with another thread, as a
+/// service polling it may; a change that broke that would fail here.
 /// `Sync` is Linux's: Windows promises only `Send` (hidapi's device is
 /// not `Sync`).
 #[cfg(target_os = "linux")]

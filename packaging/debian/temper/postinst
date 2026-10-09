@@ -2,7 +2,7 @@
 # Creates group temper and applies the udev rules to sticks already
 # plugged in, which deauthorizes their keyboards and gives their data
 # interfaces the group.  The group comes first: udev resolves GROUP=
-# names when it reads rules.  See docs/running.md.
+# names when it reads rules.
 set -e
 
 case "$1" in
