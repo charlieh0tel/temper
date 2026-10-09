@@ -22,10 +22,12 @@ OpenFile=/dev/uhid:uhid
 WatchdogSec=60s
 # 2 is a configuration error and 3 a device that cannot be presented
 # (unsupported firmware, another HID temperature or humidity sensor,
-# or no IIO devices); retrying fixes neither.  1 is a runtime failure and is retried.
+# or no IIO devices); retrying fixes neither.  0 before READY=1 (the
+# stick unplugged during startup) is a "protocol" failure to systemd,
+# which on-failure would restart.  1 is a runtime failure and is retried.
 Restart=on-failure
 RestartSec=5
-RestartPreventExitStatus=2 3
+RestartPreventExitStatus=0 2 3
 
 User=temper-iio
 Group=temper-iio

@@ -47,8 +47,13 @@ It runs in the foreground and never forks.
 | 3 | The device cannot be presented: the stick's firmware is not supported (e.g. a `TEMPer2_M12` with the same USB ID), another HID temperature or humidity sensor exists, or the IIO devices never appeared three times running (e.g. a missing kernel module); not restarted |
 
 Unplugging exits 0: `BindsTo=` stops the unit anyway, and a failure
-status would only make `Restart=on-failure` churn.  Status 3 is not
-restarted (`RestartPreventExitStatus=2 3`): each attempt takes 30 s
+status would only make `Restart=on-failure` churn.  An exit 0 before
+`READY=1`, as when the stick is unplugged during startup, is still a
+failure to systemd (result `protocol`: `service_sigchld_event`,
+`SERVICE_START` with `Type=notify`), so the unit lists 0 in
+`RestartPreventExitStatus=`, which tests the exit status alone.
+Status 3 is not restarted (`RestartPreventExitStatus=0 2 3`): each
+attempt takes 30 s
 or more, so systemd's start limit would never trip and the daemon
 would cycle forever.  A panic aborts the process in release builds
 (`panic = "abort"`, `SIGABRT`, restarted).  In dev builds a panic on
