@@ -10,7 +10,9 @@ state=/run/temper-iio-sleep
 
 case "$1" in
 pre)
-    systemctl list-units --state=active --plain --no-legend \
+    # Activating too: one still starting, or waiting to restart, would
+    # otherwise stay stopped after resume.
+    systemctl list-units --state=active,activating --plain --no-legend \
         'temper-iio@*.service' | awk '{ print $1 }' >"$state"
     if [ -s "$state" ]; then
         xargs systemctl stop <"$state"
