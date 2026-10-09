@@ -52,8 +52,8 @@ pub(crate) enum Quantity {
 
 impl Quantity {
     /// The report ID of the collection's feature and input reports.
-    /// Numbered, because kernel 7.0 reserves a leading byte for
-    /// unnumbered reports.
+    /// Numbered, because since 6.16 (0d0777ccaa2d) the kernel reserves
+    /// a leading byte for unnumbered reports in requests.
     fn report_id(self) -> u8 {
         match self {
             Self::Temperature => 1,

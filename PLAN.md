@@ -96,8 +96,8 @@ From `drivers/iio/common/hid-sensors/hid-sensor-attributes.c`,
   1.  Exponent -2 gives `in_temp_scale` 10: raw is the stick's
   centi-degrees, scaled to milli-degrees C.
 - Numbered reports (IDs >= 1) everywhere, and every GET_REPORT reply
-  full length: in 7.0, `hid_report_raw_event()` rejects short
-  reports where 6.10 padded them.  GET_REPORT is answered for both
+  full length: since 7.0 (0a3fe972a7cb), `hid_report_raw_event()`
+  rejects short reports where 6.10 padded them.  GET_REPORT is answered for both
   input and feature reports.
 - Change Sensitivity Absolute feature field, always 0: without it
   `in_temp_hysteresis` reads fail and `iio_info` shows an error.
