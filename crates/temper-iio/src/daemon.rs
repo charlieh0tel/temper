@@ -154,6 +154,11 @@ pub(crate) fn run(config: Config) -> Exit {
     let logger = Arc::new(Logger::from_env(var));
     match start(config, &logger) {
         Ok(mut daemon) => daemon.run(),
+        // A stick removed during startup is a clean stop, not an error.
+        Err((exit @ Exit::Clean, error)) => {
+            logger.info(format_args!("{error:#}"));
+            exit
+        }
         Err((exit, error)) => {
             logger.error(format_args!("{error:#}"));
             exit
