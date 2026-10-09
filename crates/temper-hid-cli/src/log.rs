@@ -37,7 +37,11 @@ pub(crate) fn run<T: Transport>(
 ) -> io::Result<()> {
     let schedule = Schedule::new(interval);
     let mut stdout = io::stdout().lock();
-    for _ in 0..count.unwrap_or(u64::MAX) {
+    for index in 0..count.unwrap_or(u64::MAX) {
+        // Between readings only, so `--count` ends at its last line.
+        if index > 0 {
+            schedule.sleep();
+        }
         let now = Timestamp::now();
         let reading = stick.reading().map_err(anyhow::Error::from);
         let line = line(now, time_format, reading.as_ref().copied());
@@ -47,7 +51,6 @@ pub(crate) fn run<T: Transport>(
                 _ => Err(error),
             };
         }
-        schedule.sleep();
     }
     Ok(())
 }
