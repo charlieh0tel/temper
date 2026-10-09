@@ -41,10 +41,10 @@ It runs in the foreground and never forks.
 
 | Status | Meaning |
 |---|---|
-| 0 | Stopped by `SIGTERM`, `SIGINT` or `SIGHUP`, or the stick was unplugged |
+| 0 | Stopped by `SIGTERM`, `SIGINT` or `SIGHUP`, the stick was unplugged, or a TEMPer2's outer probe was pulled out |
 | 1 | Runtime failure, e.g. `/run/temper-iio` unusable; restarted |
 | 2 | Configuration error; not restarted |
-| 3 | The device cannot be presented: the stick's firmware is not supported (e.g. a TEMPer2 with the same USB ID), another HID temperature or humidity sensor exists, or the IIO devices never appeared three times running (e.g. a missing kernel module); not restarted |
+| 3 | The device cannot be presented: the stick's firmware is not supported (e.g. a `TEMPer2_M12` with the same USB ID), another HID temperature or humidity sensor exists, or the IIO devices never appeared three times running (e.g. a missing kernel module); not restarted |
 
 Unplugging exits 0: `BindsTo=` stops the unit anyway, and a failure
 status would only make `Restart=on-failure` churn.  Status 3 is not
@@ -76,9 +76,10 @@ prefix to one line only.  Write errors on stderr are ignored.
    the daemon's life; `docs/protocol.md`, "Transport").  A node another
    process holds, such as a running `temper read`, exits 1, and
    systemd retries 5 s later.  Query the firmware to learn the model,
-   TEMPerGold or TEMPerHUM, up to 5 times a second apart while
-   extending the start timeout, since a stick can be slow right after
-   plug-in.  A stick that answers with other firmware exits 3 at once.
+   TEMPerGold, TEMPerHUM or TEMPer2 (and on a TEMPer2 the sensor
+   type, to learn whether the outer probe is fitted), up to 5 times a
+   second apart while extending the start timeout, since a stick can
+   be slow right after plug-in.  A stick that answers with other firmware exits 3 at once.
 3. Get `/dev/uhid`.  If `LISTEN_PID` is this process, the fd named
    `uhid` in `LISTEN_FDNAMES` (the unit says `OpenFile=/dev/uhid:uhid`)
    is fd `3 + its position`, checked against `LISTEN_FDS`.  It is
@@ -166,6 +167,19 @@ hang-up and a write's `ENODEV` as an `io::Error` of kind
 variant ("the device was removed") that the conversion from
 `io::Error` produces for that kind (and for `ENODEV`, on Unix, from
 other transports).
+
+A TEMPer2 presents one temperature: the outer probe's if the stick
+reported one fitted when the daemon identified it, otherwise the inner
+probe's.  The stick sees the outer probe only at power-up
+(`docs/protocol.md`), so the choice holds until the stick is
+replugged, and the startup line names it (`TEMPer2_V4.1, outer
+probe`).  An outer probe pulled out at runtime is handled as an
+unplug: the library's `Error::OuterProbeRemoved` stops the daemon,
+which logs `outer probe removed; replug the stick to read it again;
+stopping` at warning level and exits 0, so systemd does not restart
+it; replugging the stick starts a new instance.  There is no fallback
+to the inner probe, so the temperature link never changes meaning
+while it exists.
 
 ## Only one HID temperature sensor
 

@@ -42,10 +42,12 @@ use crate::protocol::Transport;
 const SETTLE_AFTER_OPEN: Duration = Duration::from_secs(1);
 const PAUSE_BEFORE_WRITE: Duration = Duration::from_millis(20);
 
-/// The sticks' USB vendor ID, shared by the TEMPerGold and TEMPerHUM.
+/// The sticks' USB vendor ID, shared by the TEMPerGold, TEMPerHUM and
+/// TEMPer2.
 pub const VENDOR_ID: u16 = 0x3553;
 
-/// The sticks' USB product ID, shared by the TEMPerGold and TEMPerHUM.
+/// The sticks' USB product ID, shared by the TEMPerGold, TEMPerHUM and
+/// TEMPer2.
 pub const PRODUCT_ID: u16 = 0xa001;
 
 /// Sticks this crate supports; only the hardware on hand so far.

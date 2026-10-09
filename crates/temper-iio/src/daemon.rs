@@ -30,6 +30,7 @@ use temper_hid::hid::PRODUCT_ID;
 use temper_hid::hid::VENDOR_ID;
 use temper_hid::protocol;
 use temper_hid::protocol::Firmware;
+use temper_hid::protocol::Model;
 use temper_hid::protocol::Reading;
 use temper_hid::protocol::Stick;
 use temper_hid::schedule::Schedule;
@@ -226,6 +227,11 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
     };
     let firmware = query_firmware(&mut stick, &notifier)?;
     let model = stick.model().map_err(failure)?;
+    let probe = match model {
+        Model::Temper2 if stick.has_outer_probe().map_err(failure)? => ", outer probe",
+        Model::Temper2 => ", inner probe",
+        _ => "",
+    };
     let uhid = Arc::new(listen::uhid(var).map_err(|error| match error {
         ListenError::Io(_) => failure(error),
         _ => (Exit::Config, error.into()),
@@ -245,7 +251,7 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
         });
     }
     logger.info(format_args!(
-        "temper-iio {}: {firmware} at {}, {}",
+        "temper-iio {}: {firmware}{probe} at {}, {}",
         VERSION,
         stick.transport().path().display(),
         links
@@ -295,9 +301,11 @@ fn start(config: Config, logger: &Arc<Logger>) -> Result<Daemon, StartError> {
     })
 }
 
-/// The values a reading gives the sensor.
+/// The values a reading gives the sensor: on a TEMPer2, the outer
+/// probe's temperature if one was fitted, else the inner probe's.
 fn samples(reading: Reading) -> Vec<Sample> {
-    let temperature = Sample::new(Quantity::Temperature, reading.temperature.get());
+    let celsius = reading.outer_temperature.unwrap_or(reading.temperature);
+    let temperature = Sample::new(Quantity::Temperature, celsius.get());
     let humidity = reading
         .humidity
         .map(|humidity| Sample::new(Quantity::Humidity, humidity.get()));
@@ -423,7 +431,10 @@ fn spawn_poll(
         loop {
             let result = stick.reading();
             *lock(&progress) = Instant::now();
-            let gone = matches!(result, Err(protocol::Error::Gone));
+            let gone = matches!(
+                result,
+                Err(protocol::Error::Gone | protocol::Error::OuterProbeRemoved)
+            );
             if sender.send(Message::Reading(result)).is_err() || gone {
                 return;
             }
@@ -466,7 +477,12 @@ impl Daemon {
     fn handle(&mut self, message: Message) {
         match message {
             Message::Reading(Ok(reading)) => self.on_reading(reading),
-            Message::Reading(Err(error)) if !matches!(error, protocol::Error::Gone) => {
+            Message::Reading(Err(error))
+                if !matches!(
+                    error,
+                    protocol::Error::Gone | protocol::Error::OuterProbeRemoved
+                ) =>
+            {
                 self.on_failure(error);
             }
             other => self.handle_in_wait(other),
@@ -484,6 +500,12 @@ impl Daemon {
             }
             Message::Reading(Err(protocol::Error::Gone)) => {
                 self.logger.info(format_args!("stick removed"));
+                self.stopping = self.stopping.or(Some(Exit::Clean));
+            }
+            // As good as removed: the stick sees the probe again only
+            // when replugged, which starts a new instance.
+            Message::Reading(Err(error @ protocol::Error::OuterProbeRemoved)) => {
+                self.logger.warning(format_args!("{error}; stopping"));
                 self.stopping = self.stopping.or(Some(Exit::Clean));
             }
             Message::Reading(_) | Message::Destroyed(_) => {}
@@ -727,5 +749,22 @@ impl Daemon {
         }
         self.logger.info(format_args!("stopped"));
         exit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use temper_hid::protocol::Celsius;
+
+    use super::*;
+
+    #[test]
+    fn samples_prefer_outer_probe() {
+        let inner = Reading::new(Celsius::new(27.25), None);
+        assert_eq!(samples(inner), [Sample::new(Quantity::Temperature, 27.25)]);
+        assert_eq!(
+            samples(inner.with_outer_temperature(Celsius::new(22.87))),
+            [Sample::new(Quantity::Temperature, 22.87)]
+        );
     }
 }

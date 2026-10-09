@@ -1,6 +1,6 @@
 [package]
 name = "temper-hid"
-description = "Read a PCsensor TEMPerGold USB thermometer or TEMPerHUM thermometer and hygrometer on Linux and Windows"
+description = "Read PCsensor TEMPerGold, TEMPerHUM and TEMPer2 USB sticks on Linux and Windows"
 license = "MIT OR Apache-2.0"
 categories = ["hardware-support"]
 keywords = ["temper", "thermometer", "hygrometer", "hidraw", "usb"]

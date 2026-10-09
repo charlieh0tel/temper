@@ -1,5 +1,5 @@
-# Starts temper-iio@hidrawN for each PCsensor TEMPerGold or TEMPerHUM
-# data interface; the unit BindsTo= the device, so an unplug stops it.
+# Starts temper-iio@hidrawN for each PCsensor TEMPerGold, TEMPerHUM or
+# TEMPer2 data interface; the unit BindsTo= the device, so an unplug stops it.
 # Access to the stick, and the keyboard's deauthorization, come from
 # the temper package's 60-temper.rules.  See docs/running.md.
 

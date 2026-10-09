@@ -52,8 +52,8 @@ pub(crate) fn run<T: Transport>(
     Ok(())
 }
 
-/// One output line for a reading taken at `time`.  Humidity fields
-/// appear only for a stick that measures it.
+/// One output line for a reading taken at `time`.  Humidity and outer
+/// temperature fields appear only for a stick that measures them.
 fn line(
     time: Timestamp,
     time_format: TimeFormat,
@@ -71,6 +71,9 @@ fn line(
             });
             if let Some(humidity) = reading.humidity {
                 line["humidity_percent"] = json!(humidity.get());
+            }
+            if let Some(outer) = reading.outer_temperature {
+                line["outer_temperature_c"] = json!(outer.get());
             }
             line
         }
@@ -119,6 +122,16 @@ mod tests {
         assert_eq!(
             line(time(), TimeFormat::Rfc3339, reading).to_string(),
             r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":33.88,"humidity_percent":31.01}"#
+        );
+    }
+
+    #[test]
+    fn reading_with_outer_temperature() {
+        let reading =
+            Ok(Reading::new(Celsius::new(27.25), None).with_outer_temperature(Celsius::new(22.87)));
+        assert_eq!(
+            line(time(), TimeFormat::Rfc3339, reading).to_string(),
+            r#"{"time":"2026-10-06T18:40:12.345Z","temperature_c":27.25,"outer_temperature_c":22.87}"#
         );
     }
 

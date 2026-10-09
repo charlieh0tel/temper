@@ -1,7 +1,7 @@
 # temper-hid
 
-Read a PCsensor TEMPerGold USB thermometer or TEMPerHUM thermometer
-and hygrometer (both USB ID 3553:a001) on Linux (hidraw) and Windows
+Read a PCsensor TEMPerGold or TEMPer2 USB thermometer or TEMPerHUM
+thermometer and hygrometer (all USB ID 3553:a001) on Linux (hidraw) and Windows
 (hidapi): temperature, humidity, firmware, probes, calibration and
 manufacture date.  Windows is built and tested without a stick but
 untried on hardware.
@@ -15,6 +15,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{} C", reading.temperature);
     if let Some(humidity) = reading.humidity {
         println!("{humidity} %RH");
+    }
+    if let Some(outer) = reading.outer_temperature {
+        println!("{outer} C outer probe");
     }
     Ok(())
 }

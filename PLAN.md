@@ -743,19 +743,26 @@ again, it is not seen until the stick is replugged.  Decisions:
   kernel.
 - An outer probe pulled at runtime (`4e 20`) is treated exactly as
   the stick being removed: the daemon exits cleanly, and a replug
-  starts it again.  No fallback to the inner probe.
+  starts it again.  No fallback to the inner probe.  The library
+  reports it as `Error::OuterProbeRemoved`, and the daemon logs it as
+  such, at warning level, saying to replug the stick, rather than as
+  `stick removed`.
 - The library returns both temperatures; the CLI prints both.
 - The temperature reply's length is a property of the identified
   stick, not of the command: `Stick` learns a private `Layout` when
   it identifies the stick and reads exactly that many reports, rather
   than waiting out a timeout on every reading.
-- Exclude `TEMPer2_M12` (urwen/temper: one report, outer at bytes
-  4-5, divisor 256) from the `TEMPer2_` prefix.
+- A TEMPer2 is `TEMPer2_V` and a version of 3.6 or later, the
+  firmware ElfThing decodes as type 6; that excludes `TEMPer2_M12`
+  (ElfThing type 3; urwen/temper: one report, outer at bytes 4-5).
+  Both probes' range is ElfThing's default, -40 to 125 degrees C.
+- Each temperature report's byte 1 is checked against its probe's
+  code from the sensor type (`Error::WrongProbe`).
 - Library API breaking (`Reading` gains the outer temperature,
   `Model::Temper2`), hence 2.0.0.
 
-Done: refactor (`Layout`, reply length per stick).  Remaining:
-TEMPer2 support and docs, release.
+Done: refactor (cc40cca), TEMPer2 support and docs.  Remaining:
+release.
 
 ## Phases
 

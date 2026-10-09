@@ -1,11 +1,11 @@
-//! TEMPerGold and TEMPerHUM HID protocol: the queries the sticks answer
-//! and how to decode their replies.
+//! TEMPerGold, TEMPerHUM and TEMPer2 HID protocol: the queries the
+//! sticks answer and how to decode their replies.
 //!
 //! Sources: PCsensor's ElfThing 1.0.2 app (`resources/app.asar`, class
 //! `HIDTypeDevice`; see `docs/protocol.md` for the download and its
 //! hash), and urwen/temper `temper.py`.  Reply layouts were confirmed
-//! against captures from `TEMPerGold_V3.5` and `TEMPerHUM_V4.1` sticks
-//! in `tests/fixtures/`.
+//! against captures from `TEMPerGold_V3.5`, `TEMPerHUM_V4.1` and
+//! `TEMPer2_V4.1` sticks in `tests/fixtures/`.
 
 use std::fmt;
 use std::io;
@@ -36,6 +36,24 @@ const FIRMWARE_REPORTS: usize = 2;
 /// is the stick's [`Layout`]'s.
 const ONE_REPORT: usize = 1;
 
+/// Reports in a TEMPer2's temperature reply with the outer probe
+/// fitted: the inner probe's, then the outer's (ElfThing type 6
+/// `readData`).
+const TWO_REPORTS: usize = 2;
+
+/// The firmware string prefix ElfThing decodes as a TEMPer2 (type 6),
+/// followed by the version.  Excludes `TEMPer2_M12`, decoded
+/// differently (ElfThing type 3).
+const TEMPER2_PREFIX: &str = "TEMPer2_V";
+
+/// The oldest TEMPer2 firmware ElfThing decodes as type 6 (`parseModel`:
+/// `version >= 3.6`); it decodes none older.
+const TEMPER2_MIN_VERSION: f64 = 3.6;
+
+/// What an outer probe the stick no longer sees reads (urwen/temper
+/// `_parse_bytes` skips it; captured after pulling the probe out).
+const NO_PROBE_READING: i16 = 0x4e20;
+
 /// TEMPerGold sensor range (ElfThing `parseModel`, default
 /// `innerTemperatureCRangeMin` and `Max`: -40 to 125 degrees C).
 const TEMPER_GOLD_TEMPERATURE_RANGE: RangeInclusive<i16> = -4000..=12500;
@@ -43,6 +61,10 @@ const TEMPER_GOLD_TEMPERATURE_RANGE: RangeInclusive<i16> = -4000..=12500;
 /// TEMPerHUM sensor range (ElfThing `parseModel`, `TEMPerHUM_` branch:
 /// -40 to 85 degrees C).
 const TEMPER_HUM_TEMPERATURE_RANGE: RangeInclusive<i16> = -4000..=8500;
+
+/// TEMPer2 inner and outer probe range (ElfThing `parseModel`, the
+/// defaults, which its type 6 branch keeps: -40 to 125 degrees C).
+const TEMPER2_TEMPERATURE_RANGE: RangeInclusive<i16> = -4000..=12500;
 
 /// Relative humidity range, 0 to 100 percent (the TEMPerHUM's case is
 /// marked "0-100%RH": ccwienk/temper `README.md`).
@@ -65,20 +87,25 @@ pub enum Model {
     TemperGold,
     /// Temperature and relative humidity.
     TemperHum,
+    /// Temperature, from an inner probe and an optional outer one.
+    Temper2,
 }
 
 impl Model {
     /// Every model, for matching firmware strings.
-    const ALL: [Self; 2] = [Self::TemperGold, Self::TemperHum];
+    const ALL: [Self; 3] = [Self::TemperGold, Self::TemperHum, Self::Temper2];
 
-    /// The firmware string prefix, e.g. `TEMPerGold_` of
-    /// `TEMPerGold_V3.5`.  ElfThing's `parseModel` tells TEMPerHUM by
-    /// `TEMPerHUM_`, which excludes the differently decoded
-    /// `TEMPerHumM12`.
-    fn firmware_prefix(self) -> &'static str {
+    /// Whether `firmware`, e.g. `TEMPerGold_V3.5`, names this model.
+    /// ElfThing's `parseModel` tells TEMPerHUM by `TEMPerHUM_`, which
+    /// excludes the differently decoded `TEMPerHumM12`.
+    fn names(self, firmware: &str) -> bool {
         match self {
-            Self::TemperGold => "TEMPerGold_",
-            Self::TemperHum => "TEMPerHUM_",
+            Self::TemperGold => firmware.starts_with("TEMPerGold_"),
+            Self::TemperHum => firmware.starts_with("TEMPerHUM_"),
+            Self::Temper2 => firmware
+                .strip_prefix(TEMPER2_PREFIX)
+                .and_then(|version| version.parse::<f64>().ok())
+                .is_some_and(|version| version >= TEMPER2_MIN_VERSION),
         }
     }
 
@@ -87,6 +114,7 @@ impl Model {
         match self {
             Self::TemperGold => TEMPER_GOLD_TEMPERATURE_RANGE,
             Self::TemperHum => TEMPER_HUM_TEMPERATURE_RANGE,
+            Self::Temper2 => TEMPER2_TEMPERATURE_RANGE,
         }
     }
 
@@ -94,7 +122,7 @@ impl Model {
     #[must_use]
     pub const fn has_humidity(self) -> bool {
         match self {
-            Self::TemperGold => false,
+            Self::TemperGold | Self::Temper2 => false,
             Self::TemperHum => true,
         }
     }
@@ -105,6 +133,7 @@ impl fmt::Display for Model {
         f.write_str(match self {
             Self::TemperGold => "TEMPerGold",
             Self::TemperHum => "TEMPerHUM",
+            Self::Temper2 => "TEMPer2",
         })
     }
 }
@@ -114,14 +143,25 @@ impl fmt::Display for Model {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Layout {
     model: Model,
+    /// A TEMPer2's probes, which it enumerates at power-up only.
+    probes: Option<SensorType>,
 }
 
 impl Layout {
     /// Reports in the temperature reply.
     fn temperature_reports(self) -> usize {
-        match self.model {
-            Model::TemperGold | Model::TemperHum => ONE_REPORT,
+        if self.outer_probe().is_some() {
+            TWO_REPORTS
+        } else {
+            ONE_REPORT
         }
+    }
+
+    /// The outer probe, if one was fitted when the stick was identified.
+    fn outer_probe(self) -> Option<Probe> {
+        self.probes
+            .map(|probes| probes.outer)
+            .filter(|outer| outer.is_present())
     }
 }
 
@@ -224,6 +264,21 @@ pub enum Error {
     #[error("unsupported firmware {0}")]
     #[non_exhaustive]
     UnsupportedFirmware(Firmware),
+    /// A temperature report is not from the probe expected: byte 1
+    /// repeats the sensor type's code for the probe it is from.
+    #[error("temperature report from probe 0x{actual:02x}, expected 0x{expected:02x}")]
+    #[non_exhaustive]
+    WrongProbe {
+        /// The probe's code in the sensor type reply.
+        expected: u8,
+        /// The code received.
+        actual: u8,
+    },
+    /// The TEMPer2's outer probe, fitted when the stick was identified,
+    /// was pulled out.  The stick sees a probe only at power-up, so
+    /// replugging the stick is the only way to read it again.
+    #[error("outer probe removed; replug the stick to read it again")]
+    OuterProbeRemoved,
     /// The temperature is outside what the sensor can measure.
     #[error("temperature {0} C outside the sensor range")]
     #[non_exhaustive]
@@ -329,10 +384,13 @@ impl fmt::Display for RelativeHumidityPercent {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Reading {
-    /// The temperature.
+    /// The temperature; on a TEMPer2, the inner probe's.
     pub temperature: Celsius,
     /// The relative humidity, on models that measure it.
     pub humidity: Option<RelativeHumidityPercent>,
+    /// The outer probe's temperature, on a TEMPer2 that had one fitted
+    /// when it was identified.
+    pub outer_temperature: Option<Celsius>,
 }
 
 impl Reading {
@@ -342,6 +400,16 @@ impl Reading {
         Self {
             temperature,
             humidity,
+            outer_temperature: None,
+        }
+    }
+
+    /// This reading with the outer probe's temperature.
+    #[must_use]
+    pub const fn with_outer_temperature(self, outer_temperature: Celsius) -> Self {
+        Self {
+            outer_temperature: Some(outer_temperature),
+            ..self
         }
     }
 }
@@ -360,9 +428,7 @@ impl Firmware {
     /// The model the string names, if it is one this crate decodes.
     #[must_use]
     pub fn model(&self) -> Option<Model> {
-        Model::ALL
-            .into_iter()
-            .find(|model| self.0.starts_with(model.firmware_prefix()))
+        Model::ALL.into_iter().find(|model| model.names(&self.0))
     }
 }
 
@@ -410,7 +476,7 @@ pub struct SensorType {
 
 /// Calibration offsets stored on the stick, each to a tenth (ElfThing
 /// `readCalib`, type 6, and `getReciveData`).  The firmware applies
-/// them; neither model has an outer probe, and the TEMPerGold no
+/// them; only the TEMPer2 has an outer probe, and only the TEMPerHUM a
 /// humidity sensor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -447,7 +513,7 @@ impl fmt::Display for ManufactureDate {
     }
 }
 
-/// A TEMPerGold or TEMPerHUM reached through `T`.
+/// A TEMPerGold, TEMPerHUM or TEMPer2 reached through `T`.
 #[derive(Debug)]
 pub struct Stick<T> {
     transport: T,
@@ -501,6 +567,17 @@ impl<T: Transport> Stick<T> {
         self.layout().map(|layout| layout.model)
     }
 
+    /// Whether an outer probe was fitted when the stick was identified,
+    /// identifying it the first time.  Only a TEMPer2 has one, and it
+    /// sees one only at power-up.
+    ///
+    /// # Errors
+    ///
+    /// As [`Stick::firmware`].
+    pub fn has_outer_probe(&mut self) -> Result<bool, Error> {
+        self.layout().map(|layout| layout.outer_probe().is_some())
+    }
+
     /// The layout, identifying the stick the first time.
     fn layout(&mut self) -> Result<Layout, Error> {
         match self.layout {
@@ -510,13 +587,17 @@ impl<T: Transport> Stick<T> {
     }
 
     /// Queries the firmware and records the layout of the model it
-    /// names.
+    /// names; on a TEMPer2, which probes are fitted, too.
     fn identify(&mut self) -> Result<(Firmware, Layout), Error> {
         let firmware = decode_firmware(&self.query(Command::Firmware, FIRMWARE_REPORTS)?)?;
         let Some(model) = firmware.model() else {
             return Err(Error::UnsupportedFirmware(firmware));
         };
-        let layout = Layout { model };
+        let probes = match model {
+            Model::Temper2 => Some(self.sensor_type()?),
+            Model::TemperGold | Model::TemperHum => None,
+        };
+        let layout = Layout { model, probes };
         self.layout = Some(layout);
         Ok((firmware, layout))
     }
@@ -526,21 +607,35 @@ impl<T: Transport> Stick<T> {
     ///
     /// # Errors
     ///
-    /// As [`Stick::model`] and the query (see [`Error`]), and
+    /// As [`Stick::model`] and the query (see [`Error`]),
     /// [`Error::OutOfRange`] or [`Error::HumidityOutOfRange`] for a
-    /// reading the sensor cannot produce.
+    /// reading the sensor cannot produce, and on a TEMPer2
+    /// [`Error::WrongProbe`] and [`Error::OuterProbeRemoved`].
     pub fn reading(&mut self) -> Result<Reading, Error> {
         let layout = self.layout()?;
         let reply = self.query(Command::Temperature, layout.temperature_reports())?;
         let model = layout.model;
-        Ok(Reading {
-            temperature: decode_temperature(&reply, model)?,
-            humidity: if model.has_humidity() {
+        if let Some(probes) = layout.probes {
+            check_probe(&reply[0], probes.inner)?;
+        }
+        let reading = Reading::new(
+            decode_temperature(&reply[0], model)?,
+            if model.has_humidity() {
                 Some(decode_humidity(&reply)?)
             } else {
                 None
             },
-        })
+        );
+        let Some(outer) = layout.outer_probe() else {
+            return Ok(reading);
+        };
+        let report = &reply[1];
+        check_tag(Command::Temperature, report)?;
+        check_probe(report, outer)?;
+        if centi(report) == NO_PROBE_READING {
+            return Err(Error::OuterProbeRemoved);
+        }
+        Ok(reading.with_outer_temperature(decode_temperature(report, model)?))
     }
 
     /// Queries which probes are fitted.
@@ -596,18 +691,41 @@ impl<T: Transport> Stick<T> {
                 actual: reply.len(),
             });
         }
-        if let Some(expected) = command.reply_tag() {
-            let actual = reply[0][0];
-            if actual != expected {
-                return Err(Error::WrongTag {
-                    command,
-                    expected,
-                    actual,
-                });
-            }
-        }
+        check_tag(command, &reply[0])?;
         Ok(reply)
     }
+}
+
+/// Fails unless `report` carries the tag of a reply to `command`, if
+/// its replies are tagged.
+fn check_tag(command: Command, report: &Report) -> Result<(), Error> {
+    match command.reply_tag() {
+        Some(expected) if report[0] != expected => Err(Error::WrongTag {
+            command,
+            expected,
+            actual: report[0],
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// Fails unless the temperature `report` is from `probe`.
+fn check_probe(report: &Report, probe: Probe) -> Result<(), Error> {
+    if report[1] == probe.code() {
+        Ok(())
+    } else {
+        Err(Error::WrongProbe {
+            expected: probe.code(),
+            actual: report[1],
+        })
+    }
+}
+
+/// A temperature report's bytes 2-3, big-endian, signed, in hundredths
+/// (urwen/temper `_parse_bytes` offset 2, divisor 100; ElfThing
+/// `parseByteToData`).
+fn centi(report: &Report) -> i16 {
+    i16::from_be_bytes([report[2], report[3]])
 }
 
 /// The firmware string, ASCII and NUL-padded across the reply reports.
@@ -626,11 +744,9 @@ fn decode_firmware(reply: &[Report]) -> Result<Firmware, Error> {
     Ok(Firmware(text.trim().to_owned()))
 }
 
-/// Bytes 2-3, big-endian, signed (urwen/temper `_parse_bytes` offset 2,
-/// divisor 100; ElfThing `parseByteToData`).
-fn decode_temperature(reply: &[Report], model: Model) -> Result<Celsius, Error> {
-    let report = reply[0];
-    let centi = i16::from_be_bytes([report[2], report[3]]);
+/// A temperature report's temperature, checked against `model`'s range.
+fn decode_temperature(report: &Report, model: Model) -> Result<Celsius, Error> {
+    let centi = centi(report);
     let temperature = Celsius(f64::from(centi) / READING_SCALE);
     if !model.temperature_range().contains(&centi) {
         return Err(Error::OutOfRange(temperature));
@@ -706,6 +822,22 @@ mod tests {
     const HUM_SENSOR_TYPE: &[u8] = fixture!("temper_hum", "sensor_type");
     const HUM_CALIBRATION: &[u8] = fixture!("temper_hum", "calibration");
     const HUM_MANUFACTURE_DATE: &[u8] = fixture!("temper_hum", "manufacture_date");
+
+    /// Replies captured from a `TEMPer2_V4.1` stick, plugged in with its
+    /// outer probe, and (`temper2_no_outer`) without.
+    const TEMPER2_FIRMWARE: &[u8] = fixture!("temper2", "firmware");
+    const TEMPER2_TEMPERATURE: &[u8] = fixture!("temper2", "temperature");
+    const TEMPER2_SENSOR_TYPE: &[u8] = fixture!("temper2", "sensor_type");
+    const TEMPER2_CALIBRATION: &[u8] = fixture!("temper2", "calibration");
+    const TEMPER2_MANUFACTURE_DATE: &[u8] = fixture!("temper2", "manufacture_date");
+    const TEMPER2_NO_OUTER_TEMPERATURE: &[u8] = fixture!("temper2_no_outer", "temperature");
+    const TEMPER2_NO_OUTER_SENSOR_TYPE: &[u8] = fixture!("temper2_no_outer", "sensor_type");
+
+    /// A TEMPer2's temperature reply after its outer probe was pulled
+    /// out, from a capture.
+    const TEMPER2_OUTER_REMOVED: &[u8] = &[
+        0x80, 0x80, 0x0a, 0xc4, 0x4e, 0x20, 0, 0, 0x80, 0x01, 0x4e, 0x20, 0x4e, 0x20, 0, 0,
+    ];
 
     fn reports(bytes: &[u8]) -> Vec<Report> {
         bytes.as_chunks::<REPORT_LEN>().0.to_vec()
@@ -869,7 +1001,7 @@ mod tests {
     fn negative_temperature() {
         let report = [0x80, 0x80, 0xfc, 0x18, 0, 0, 0, 0];
         assert_eq!(
-            decode_temperature(&[report], Model::TemperGold).unwrap(),
+            decode_temperature(&report, Model::TemperGold).unwrap(),
             Celsius(-10.0)
         );
     }
@@ -878,7 +1010,7 @@ mod tests {
     fn out_of_range_temperature() {
         let report = [0x80, 0x80, 0x4e, 0x20, 0, 0, 0, 0];
         assert!(matches!(
-            decode_temperature(&[report], Model::TemperGold),
+            decode_temperature(&report, Model::TemperGold),
             Err(Error::OutOfRange(temperature)) if temperature == Celsius(200.0)
         ));
     }
@@ -899,13 +1031,7 @@ mod tests {
     #[test]
     fn gold_reading_has_no_humidity() {
         let mut stick = Stick::new(Fake::new(&[], &[FIRMWARE, TEMPERATURE]));
-        assert_eq!(
-            stick.reading().unwrap(),
-            Reading {
-                temperature: Celsius(35.12),
-                humidity: None,
-            }
-        );
+        assert_eq!(stick.reading().unwrap(), Reading::new(Celsius(35.12), None));
         assert_eq!(stick.model().unwrap(), Model::TemperGold);
         assert_eq!(stick.transport.sent.len(), 2);
     }
@@ -991,5 +1117,121 @@ mod tests {
         assert_eq!(Celsius(35.12).to_string(), "35.12");
         assert_eq!(Celsius(-0.05).to_string(), "-0.05");
         assert_eq!(RelativeHumidityPercent(31.0).to_string(), "31.00");
+    }
+
+    #[test]
+    fn temper2_firmware() {
+        let model = |text: &str| Firmware(text.to_owned()).model();
+        assert_eq!(model("TEMPer2_V4.1"), Some(Model::Temper2));
+        assert_eq!(model("TEMPer2_V3.6"), Some(Model::Temper2));
+        assert_eq!(model("TEMPer2_V3.5"), None);
+        assert_eq!(model("TEMPer2_M12_V1.3"), None);
+    }
+
+    #[test]
+    fn captured_temper2_reading() {
+        let mut stick = Stick::new(Fake::new(
+            &[],
+            &[TEMPER2_FIRMWARE, TEMPER2_SENSOR_TYPE, TEMPER2_TEMPERATURE],
+        ));
+        assert_eq!(
+            stick.reading().unwrap(),
+            Reading::new(Celsius(27.25), None).with_outer_temperature(Celsius(22.87))
+        );
+        assert_eq!(stick.model().unwrap(), Model::Temper2);
+        assert!(stick.has_outer_probe().unwrap());
+        assert_eq!(
+            stick.transport.sent,
+            [
+                Command::Firmware.bytes(),
+                Command::SensorType.bytes(),
+                Command::Temperature.bytes()
+            ]
+        );
+    }
+
+    #[test]
+    fn captured_temper2_reading_without_outer_probe() {
+        let mut stick = Stick::new(Fake::new(
+            &[],
+            &[
+                TEMPER2_FIRMWARE,
+                TEMPER2_NO_OUTER_SENSOR_TYPE,
+                TEMPER2_NO_OUTER_TEMPERATURE,
+            ],
+        ));
+        assert_eq!(stick.reading().unwrap(), Reading::new(Celsius(27.06), None));
+        assert!(!stick.has_outer_probe().unwrap());
+    }
+
+    #[test]
+    fn captured_temper2_details() {
+        let mut stick = Stick::new(Fake::new(&[], &[TEMPER2_CALIBRATION]));
+        assert_eq!(stick.calibration().unwrap().outer_temperature, Celsius(0.0));
+        let mut stick = Stick::new(Fake::new(&[], &[TEMPER2_MANUFACTURE_DATE]));
+        assert_eq!(stick.manufacture_date().unwrap().to_string(), "2023-03-01");
+    }
+
+    #[test]
+    fn temper2_outer_probe_removed() {
+        let mut stick = Stick::new(Fake::new(
+            &[],
+            &[TEMPER2_FIRMWARE, TEMPER2_SENSOR_TYPE, TEMPER2_OUTER_REMOVED],
+        ));
+        assert!(matches!(stick.reading(), Err(Error::OuterProbeRemoved)));
+    }
+
+    #[test]
+    fn temper2_missing_outer_report() {
+        let mut stick = Stick::new(Fake::new(
+            &[],
+            &[
+                TEMPER2_FIRMWARE,
+                TEMPER2_SENSOR_TYPE,
+                TEMPER2_NO_OUTER_TEMPERATURE,
+            ],
+        ));
+        assert!(matches!(
+            stick.reading(),
+            Err(Error::ShortReply {
+                expected: 2,
+                actual: 1,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn temper2_reports_swapped() {
+        let swapped = [
+            &TEMPER2_TEMPERATURE[REPORT_LEN..],
+            &TEMPER2_TEMPERATURE[..REPORT_LEN],
+        ]
+        .concat();
+        let mut stick = Stick::new(Fake::new(
+            &[],
+            &[TEMPER2_FIRMWARE, TEMPER2_SENSOR_TYPE, &swapped],
+        ));
+        assert!(matches!(
+            stick.reading(),
+            Err(Error::WrongProbe {
+                expected: 0x80,
+                actual: 0x01
+            })
+        ));
+    }
+
+    #[test]
+    fn temper2_outer_report_wrong_tag() {
+        let mut reply = TEMPER2_TEMPERATURE.to_vec();
+        reply[REPORT_LEN] = 0x87;
+        let mut stick = Stick::new(Fake::new(
+            &[],
+            &[TEMPER2_FIRMWARE, TEMPER2_SENSOR_TYPE, &reply],
+        ));
+        assert!(matches!(
+            stick.reading(),
+            Err(Error::WrongTag { actual: 0x87, .. })
+        ));
     }
 }

@@ -7,7 +7,7 @@
 use temper_hid::protocol::Stick;
 
 #[test]
-#[ignore = "needs a TEMPerGold or TEMPerHUM, and root"]
+#[ignore = "needs a TEMPerGold, TEMPerHUM or TEMPer2, and root"]
 fn reads_attached_stick() {
     let mut stick = Stick::find().unwrap();
     let model = stick.firmware().unwrap().model().unwrap();

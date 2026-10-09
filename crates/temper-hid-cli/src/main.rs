@@ -5,6 +5,7 @@ compile_error!("temper runs on Linux and Windows");
 
 mod log;
 
+use std::iter;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -20,7 +21,7 @@ use crate::log::TimeFormat;
 /// The build's version, stamped by `build.rs`.
 const VERSION: &str = env!("TEMPER_VERSION");
 
-/// Read a PCsensor TEMPerGold or TEMPerHUM USB stick.
+/// Read a PCsensor TEMPerGold, TEMPerHUM or TEMPer2 USB stick.
 #[derive(Debug, Parser)]
 #[command(name = "temper", version = VERSION)]
 struct Cli {
@@ -36,7 +37,8 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Print the temperature in degrees C, then, for a stick that
-    /// measures it, the relative humidity in percent.
+    /// measures it, the relative humidity in percent; on a TEMPer2, the
+    /// inner probe's temperature, then the outer probe's if fitted.
     Read,
     /// Print everything the stick reports about itself.
     Info,
@@ -74,10 +76,11 @@ fn run(device: Option<PathBuf>, command: Command) -> anyhow::Result<()> {
     match command {
         Command::Read => {
             let reading = stick.reading()?;
-            match reading.humidity {
-                Some(humidity) => println!("{} {humidity}", reading.temperature),
-                None => println!("{}", reading.temperature),
-            }
+            let values = iter::once(reading.temperature.to_string())
+                .chain(reading.humidity.map(|humidity| humidity.to_string()))
+                .chain(reading.outer_temperature.map(|outer| outer.to_string()))
+                .collect::<Vec<_>>();
+            println!("{}", values.join(" "));
         }
         Command::Info => {
             println!("device: {}", stick.transport().path().display());
@@ -103,6 +106,9 @@ fn run(device: Option<PathBuf>, command: Command) -> anyhow::Result<()> {
             println!("temperature: {} C", reading.temperature);
             if let Some(humidity) = reading.humidity {
                 println!("humidity: {humidity} %RH");
+            }
+            if let Some(outer) = reading.outer_temperature {
+                println!("outer_temperature: {outer} C");
             }
         }
         Command::Log {

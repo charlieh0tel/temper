@@ -1,11 +1,12 @@
 # temper-hid-cli
 
-`temper`, a command-line tool for PCsensor TEMPerGold USB thermometers
-and TEMPerHUM thermometers and hygrometers (USB ID 3553:a001), built
+`temper`, a command-line tool for PCsensor TEMPerGold and TEMPer2 USB
+thermometers and TEMPerHUM thermometers and hygrometers (USB ID
+3553:a001), built
 on the [`temper-hid`](https://crates.io/crates/temper-hid) library.
 
 ```
-temper read    # degrees C, then %RH on a TEMPerHUM
+temper read    # degrees C; then %RH on a TEMPerHUM, outer probe on a TEMPer2
 temper info    # firmware, model, probes, calibration, manufacture date
 temper log     # JSON Lines: --interval, --count, --time rfc3339|unix
 ```

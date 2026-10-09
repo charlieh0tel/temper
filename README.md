@@ -1,6 +1,6 @@
 # temper
 
-Software for the PCsensor TEMPerGold and TEMPerHUM USB sticks
+Software for the PCsensor TEMPerGold, TEMPerHUM and TEMPer2 USB sticks
 (3553:a001):
 
 - `temper`: a command-line tool.  Linux and Windows.
@@ -20,7 +20,7 @@ Software for the PCsensor TEMPerGold and TEMPerHUM USB sticks
 ## Use
 
 ```
-temper read    # degrees C, then %RH on a TEMPerHUM
+temper read    # degrees C; then %RH on a TEMPerHUM, outer probe on a TEMPer2
 temper info    # firmware, model, calibration
 temper log     # JSON Lines
 ```
@@ -29,7 +29,9 @@ The udev rule in the `temper` package grants the stick to the user at
 the seat and to group `temper`.
 
 `temper-iio` serves `/run/temper-iio/temperature` and, on a TEMPerHUM,
-`/run/temper-iio/humidity`.  It handles one stick per machine, and
+`/run/temper-iio/humidity`.  On a TEMPer2 the temperature is the
+outer probe's if one was fitted when the stick was plugged in, else
+the inner probe's.  It handles one stick per machine, and
 holds it: stop it to use `temper`.  See `docs/running.md`.
 
 ## Build

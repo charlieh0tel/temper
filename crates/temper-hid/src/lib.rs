@@ -1,4 +1,4 @@
-//! Read a PCsensor TEMPerGold USB thermometer or TEMPerHUM
+//! Read a PCsensor TEMPerGold or TEMPer2 USB thermometer or TEMPerHUM
 //! thermometer and hygrometer, on Linux (hidraw) and Windows.
 //!
 //! [`protocol`] encodes the stick's queries and decodes its replies over
@@ -16,6 +16,9 @@
 //! println!("{} C", reading.temperature);
 //! if let Some(humidity) = reading.humidity {
 //!     println!("{humidity} %RH");
+//! }
+//! if let Some(outer) = reading.outer_temperature {
+//!     println!("{outer} C outer probe");
 //! }
 //! # Ok(())
 //! # }

@@ -1,6 +1,6 @@
 [package]
 name = "temper-hid-cli"
-description = "Command-line tool for PCsensor TEMPerGold and TEMPerHUM USB sticks: read, info, and a JSON Lines log"
+description = "Command-line tool for PCsensor TEMPerGold, TEMPerHUM and TEMPer2 USB sticks"
 license = "GPL-3.0-or-later"
 categories = ["command-line-utilities", "hardware-support"]
 keywords = ["temper", "thermometer", "hygrometer", "hidraw", "usb"]
@@ -31,8 +31,8 @@ name = "temper"
 maintainer = "Christopher Hoover <ch@murgatroid.com>"
 copyright = "2026, Christopher Hoover"
 extended-description = """\
-temper reads a PCsensor TEMPerGold USB thermometer or a TEMPerHUM \
-thermometer and hygrometer over hidraw: the reading, what the stick \
+temper reads a PCsensor TEMPerGold or TEMPer2 USB thermometer or a \
+TEMPerHUM thermometer and hygrometer over hidraw: the reading, what the stick \
 reports about itself, and a JSON Lines log.  Access to the stick's \
 hidraw node is given to group temper and to the user at the seat."""
 section = "utils"

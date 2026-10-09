@@ -1,8 +1,8 @@
 # TEMPer protocol
 
-What `temper-hid` sends to a PCsensor TEMPerGold or TEMPerHUM and how it
-reads the replies.  Both have USB ID 3553:a001 and the same commands;
-the firmware string tells them apart.  Implemented in the `temper-hid` library,
+What `temper-hid` sends to a PCsensor TEMPerGold, TEMPerHUM or TEMPer2
+and how it reads the replies.  All three have USB ID 3553:a001 and the
+same commands; the firmware string tells them apart.  Implemented in the `temper-hid` library,
 `crates/temper-hid/src/protocol.rs` and `crates/temper-hid/src/hid/`
 (shared logic in `mod.rs`, the Linux backend in `linux.rs`).
 
@@ -14,8 +14,10 @@ the firmware string tells them apart.  Implemented in the `temper-hid` library,
 - urwen/temper, `temper.py` (commit 40536cf).
 - ccwienk/temper, `README.md` (commit 60889bf), for the TEMPerHUM's
   case markings.
-- Captures from a `TEMPerGold_V3.5` and a `TEMPerHUM_V4.1` stick, in
-  `crates/temper-hid/tests/fixtures/temper_gold/` and `temper_hum/`.
+- Captures from a `TEMPerGold_V3.5`, a `TEMPerHUM_V4.1` and a
+  `TEMPer2_V4.1` stick, in `crates/temper-hid/tests/fixtures/`
+  (`temper_gold/`, `temper_hum/`, and `temper2/` with the outer probe
+  fitted, `temper2_no_outer/` without).
 
 ## Transport
 
@@ -32,11 +34,13 @@ TEMPerGold_V3.5  06 00 ff 09 01 a1 01 09 01 15 00 26 ff 00 75 08 95 08 81 02
                  c0
 TEMPerHUM_V4.1   05 01 09 00 a1 01 09 01 15 00 25 ff 95 08 75 08 81 02 09 01
                  91 02 c0
+TEMPer2_V4.1     the same as the TEMPerHUM's
 ```
 
 The TEMPerGold's is vendor page 0xFF00, usage 1, with an extra 8-byte
 feature report on the Consumer page (usage 0) that nothing here uses;
-the TEMPerHUM's is Generic Desktop, usage 0, with no feature report.
+the TEMPerHUM's and TEMPer2's are Generic Desktop, usage 0, with no
+feature report.
 
 hidraw hands every input report to every process that has the node
 open, so two processes querying one stick read each other's replies:
@@ -81,7 +85,7 @@ Interrupted `poll` and `read` calls are retried.
 | Command | Bytes | Reply |
 |---|---|---|
 | Firmware | `01 86 ff 01 00 00 00 00` | Two reports of NUL-padded ASCII, e.g. `TEMPerGold_V3.5` |
-| Temperature | `01 80 33 01 00 00 00 00` | `80 ..`, bytes 2-3 big-endian i16 in 0.01 degrees C; on a TEMPerHUM, bytes 4-5 big-endian i16 in 0.01 %RH |
+| Temperature | `01 80 33 01 00 00 00 00` | `80 ..`, bytes 2-3 big-endian i16 in 0.01 degrees C; on a TEMPerHUM, bytes 4-5 big-endian i16 in 0.01 %RH; on a TEMPer2 with the outer probe fitted, a second report, the outer probe's (below) |
 | Sensor type | `01 87 ee 00 00 00 00 00` | `87 ..`, byte 1 inner probe, byte 2 outer; nonzero means present |
 | Calibration | `01 82 77 01 00 00 00 00` | `82 ..`, bytes 2-5 signed tenths: inner temperature, inner humidity, outer temperature, outer humidity |
 | Manufacture date | `01 8a 00 00 00 00 00 00` | `8a ..`, bytes 1-3 year - 2000, month, day |
@@ -106,6 +110,18 @@ temperature   80 20 0d 3c 0c 1d 00 00   33.88 degrees C, 31.01 %RH
 sensor type   87 20 00 00 00 00 00 00   inner 0x20, outer none
 calibration   82 04 00 00 00 00 00 00   all 0.0
 manufacture   8a 17 03 01 00 00 00 00   2023-03-01
+
+TEMPer2, plugged in with the outer probe
+firmware      54 45 4d 50 65 72 32 5f  56 34 2e 31 00 00 00 00   TEMPer2_V4.1
+temperature   80 80 0a a5 4e 20 00 00   27.25 degrees C, inner
+              80 01 08 ef 4e 20 00 00   22.87 degrees C, outer
+sensor type   87 80 01 00 00 00 00 00   inner 0x80, outer 0x01
+calibration   82 04 00 00 00 00 00 00   all 0.0
+manufacture   8a 17 03 01 00 00 00 00   2023-03-01
+
+TEMPer2, plugged in without it
+temperature   80 80 0a 92 4e 20 00 00   27.06 degrees C, inner
+sensor type   87 80 00 00 00 00 00 00   inner 0x80, outer none
 ```
 
 The humidity layout follows ElfThing's type 5 `TEMPerHUM` branch
@@ -124,17 +140,48 @@ either stick confirms them.
 
 The model is the firmware string's prefix: `TEMPerGold_` or
 `TEMPerHUM_`, as ElfThing's `parseModel` tests; that excludes
-`TEMPerHumM12`, which ElfThing decodes differently.  Other firmware is
-refused: a TEMPer2 shares the USB ID but not the layout (`temper-iio`
-exits 3 on one).  Readings outside the sensor's range are
-rejected: -40 to 125 degrees C on a TEMPerGold, -40 to 85 on a
-TEMPerHUM (ElfThing `parseModel`, `innerTemperatureCRangeMin` and
-`Max`), and 0 to 100 %RH (the TEMPerHUM's case marking, quoted in
+`TEMPerHumM12`, which ElfThing decodes differently.  A TEMPer2 is
+`TEMPer2_V` and a version of 3.6 or later: ElfThing decodes only those
+as type 6 (`version >= 3.6`), and decodes `TEMPer2_M12` (e.g.
+`TEMPer2_M12_V1.3`, one report, the outer probe in bytes 4-5 per
+urwen/temper) as type 3, which `temper-hid` does not.  Other firmware
+is refused (`temper-iio` exits 3).  Readings outside the sensor's range are
+rejected: -40 to 125 degrees C on a TEMPerGold and on either TEMPer2
+probe, -40 to 85 on a TEMPerHUM (ElfThing `parseModel`,
+`innerTemperatureCRangeMin` and `Max`, and `outer...` for the TEMPer2's
+outer probe; type 6 keeps the defaults), and 0 to 100 %RH (the TEMPerHUM's case marking, quoted in
 ccwienk/temper `README.md`).  A query fails if more than 16 stale
 reports precede it.
 
 The library reports values in natural units, `Celsius` and
 `RelativeHumidityPercent` (f64); calibration offsets too.
+
+## TEMPer2 outer probe
+
+The TEMPer2 has an inner probe and a detachable outer one on a lead.
+When identifying a TEMPer2, `temper-hid` also queries the sensor type,
+as ElfThing's type 6 does, to learn whether the outer probe is fitted
+(byte 2 nonzero).  With it, the temperature reply is two reports, the
+inner probe's and then the outer probe's, each tagged `80` and laid
+out alike (ElfThing `readData`, type 6, reads the second when
+`outerSensor > 0`; urwen/temper `TEMPer2_V3.7` and `V3.9` read the
+outer temperature at offset 10, divisor 100).  Without it, one
+report.  Byte 1 of each temperature report repeats its probe's code
+from the sensor type reply (inner 0x80, outer 0x01), so the library
+checks it (`Error::WrongProbe`): the tag alone cannot tell a stale
+outer report from an inner one.
+
+The stick sees the outer probe only at power-up.  Captured on the
+bench stick: plugged in later, it is not seen (sensor type `87 80 00`,
+one report) until the stick is replugged; pulled out at runtime, the
+stick keeps answering the sensor type `87 80 01` and two reports, the
+outer one reading `4e 20` (200.00, which urwen/temper's
+`_parse_bytes` skips as no reading), and plugged back in it stays at
+`4e 20` until the stick is replugged.  Even at power-up the stick
+does not always see it: on the bench, it missed a fully seated probe
+on three of four replugs, for no known reason.  So `temper-hid` reads the
+number of reports learned when it identified the stick, and reports
+an outer `4e 20` as `Error::OuterProbeRemoved`.
 
 ## Writes
 

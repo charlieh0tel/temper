@@ -33,8 +33,8 @@ const VERSION: &str = env!("TEMPER_VERSION");
 /// never expires it.
 const MIN_HOLD_INTERVALS: u32 = 2;
 
-/// Present a PCsensor TEMPerGold or TEMPerHUM USB stick as Linux IIO
-/// devices until stopped.  Runs in the foreground, for systemd.
+/// Present a PCsensor TEMPerGold, TEMPerHUM or TEMPer2 USB stick as
+/// Linux IIO devices until stopped.  Runs in the foreground, for systemd.
 #[derive(Debug, Parser)]
 #[command(name = "temper-iio", version = VERSION)]
 struct Cli {

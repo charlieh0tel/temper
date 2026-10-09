@@ -1,4 +1,4 @@
-# PCsensor TEMPerGold and TEMPerHUM (both 3553:a001): access to the
+# PCsensor TEMPerGold, TEMPerHUM and TEMPer2 (all 3553:a001): access to the
 # stick, for the temper tool, smartclock-sensord and temper-iio.  See
 # docs/running.md.
 
