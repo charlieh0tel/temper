@@ -660,9 +660,11 @@ crates/temper-hid/src/
   portable tests and the Windows backend's pure helpers run there.
   The target is installed where needed, not in `rust-toolchain.toml`.
 - CI and release use the shared workflows, as the other repos do.
-  `rust-build-deb.yml` is called twice, `package: temper-hid-cli` and
-  `package: temper-iio` (cargo package names; the deb names come from
-  `[package.metadata.deb]`), with `artifact-suffix`.
+  `rust-build-deb.yml` is called once, `packages: temper-hid-cli`
+  (cargo package name; the deb name comes from
+  `[package.metadata.deb]`), with `artifact-suffix`.  `packages`, not
+  the deprecated `package` (gone in `v2`); it builds the whole
+  workspace, the .deb is the same.
 - `rust-build-exes.yml` could not be used as it was: it built the
   whole workspace (and `temper-iio` does not build on Windows) and ran
   tests only on Linux.  So `deb-workflows` got additive inputs,
@@ -675,9 +677,9 @@ crates/temper-hid/src/
   and its tests run on real Windows (the CLI's; the library's
   Windows-only helpers run under wine in `make windows-check`), and is
   attached to the release, marked untested on hardware.
-- Order in `release.yml`: the two deb calls (they share a concurrency
-  group), then the exe call (`needs` both, `contents: write`), then
-  `notes`, `publish-crate` and `trigger-apt-repo` (`needs` all three).
+- Order in `release.yml`: the deb call, then the exe call (`needs`
+  it, `contents: write`), then `notes`, `publish-crate` and
+  `trigger-apt-repo` (`needs` both).
   The audit runs in one call only.  This relies on GitHub releases
   staying mutable.
 - `publish-crate` publishes `temper-hid`, then `temper-hid-cli`.  Both
