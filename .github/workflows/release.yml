@@ -35,7 +35,7 @@ jobs:
     needs: versions
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@v1
     with:
-      package: temper-hid-cli
+      packages: temper-hid-cli
       artifact-suffix: temper
     # Scoped to this job, not the dispatch job below.
     permissions:
